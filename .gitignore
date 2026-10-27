@@ -1,0 +1,34 @@
+# Dependencies & Build Outputs
+node_modules/
+dist/
+dist-ssr/
+.svelte-kit/
+
+# Android, Native Build, & Binaries
+*.apk
+*.aab
+*.keystore
+*.jks
+local.properties
+.gradle/
+build/
+**/build/
+
+# Environment & Logs
+.env
+.env.*
+!.env.example
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
