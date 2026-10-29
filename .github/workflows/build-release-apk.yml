@@ -71,15 +71,9 @@ jobs:
           node-version: 22
           cache: 'npm'
 
-      - name: Cache Gradle Packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+      # Menggunakan Setup Gradle resmi untuk performa & cache yang lebih baik
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
 
       - name: Install NPM Dependencies
         run: npm ci
@@ -115,42 +109,40 @@ jobs:
           FINAL_APK="TapMoneyInfo.apk"
 
           if [ ! -f "$UNSIGNED_APK" ]; then
-            # If assembleRelease produced already-signed apk or standard name
             UNSIGNED_APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
           fi
 
           echo "Aligning APK..."
           "$ZIPALIGN" -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
 
-          # Determine keystore: use secret if provided, otherwise generate temporary release key
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Using repository secret KEYSTORE_BASE64..."
             echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
             KEY_ALIAS_TO_USE="${KEY_ALIAS:-tapmoney}"
-            STORE_PASS="${KEYSTORE_PASSWORD:-tapmoney123}"
-            KEY_PASS="${KEY_PASSWORD:-tapmoney123}"
+            STORE_PASS="${KEYSTORE_PASSWORD:-Gilang#12}"
+            KEY_PASS="${KEY_PASSWORD:-Gilang#12}"
           else
-            echo "KEYSTORE_BASE64 not configured in secrets. Generating self-signed CI release key..."
+            echo "KEYSTORE_BASE64 not configured in secrets. Generating temporary self-signed CI key..."
             keytool -genkeypair -v \
               -keystore release.keystore \
               -alias tapmoney \
               -keyalg RSA \
               -keysize 2048 \
               -validity 10000 \
-              -storepass tapmoney123 \
-              -keypass tapmoney123 \
-              -dname "CN=TapMoney Info, OU=Development, O=Machfudin, L=Jakarta, ST=DKI Jakarta, C=ID"
+              -storepass "Gilang#12" \
+              -keypass "Gilang#12" \
+              -dname "CN=TapMoney Info, OU=Mobile Dev, O=TapMoney, L=Jakarta, ST=DKI Jakarta, C=ID"
             KEY_ALIAS_TO_USE="tapmoney"
-            STORE_PASS="tapmoney123"
-            KEY_PASS="tapmoney123"
+            STORE_PASS="Gilang#12"
+            KEY_PASS="Gilang#12"
           fi
 
           echo "Signing APK with apksigner (V1, V2, V3)..."
           "$APKSIGNER" sign \
             --ks release.keystore \
             --ks-key-alias "$KEY_ALIAS_TO_USE" \
-            --ks-pass "pass:$STORE_PASS" \
-            --key-pass "pass:$KEY_PASS" \
+            --ks-pass pass:"$STORE_PASS" \
+            --key-pass pass:"$KEY_PASS" \
             --v1-signing-enabled true \
             --v2-signing-enabled true \
             --v3-signing-enabled true \
