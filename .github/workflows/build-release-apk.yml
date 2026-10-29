@@ -9,6 +9,11 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      version:
+        description: 'Target Version (SemVer: MAJOR.MINOR.PATCH e.g. 1.1.1). Leave empty to use git tag or package.json.'
+        required: false
+        default: ''
+        type: string
       build_type:
         description: 'Build Type (release or debug)'
         required: true
@@ -90,10 +95,43 @@ jobs:
       - name: Make Gradlew Executable
         run: chmod +x android/gradlew
 
+      - name: Resolve Dynamic Version
+        id: semver
+        run: |
+          RAW_VERSION=""
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            RAW_VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            RAW_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            RAW_VERSION=$(node -p "require('./package.json').version || '1.0.0'")
+          fi
+
+          CLEAN_VERSION=$(echo "$RAW_VERSION" | sed 's/^v//')
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CLEAN_VERSION"
+          MAJOR=${MAJOR:-1}
+          MINOR=${MINOR:-0}
+          PATCH=${PATCH:-0}
+          PATCH_NUM=$(echo "$PATCH" | grep -o '^[0-9]\+' || echo "0")
+
+          VERSION_CODE=$(( (MAJOR * 10000) + (MINOR * 100) + PATCH_NUM ))
+          VERSION_NAME="$CLEAN_VERSION"
+          APK_NAME="TapMoneyInfo-v${VERSION_NAME}.apk"
+
+          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
+          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
+          echo "APK_NAME=$APK_NAME" >> $GITHUB_ENV
+
+          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
+
+          echo "Dynamic Version: $VERSION_NAME (Code: $VERSION_CODE) -> $APK_NAME"
+
       - name: Build Android Release APK
         run: |
           cd android
-          ./gradlew assembleRelease --no-daemon --stacktrace
+          ./gradlew assembleRelease -PversionName="$VERSION_NAME" -PversionCode=$VERSION_CODE --no-daemon --stacktrace
 
       - name: Sign APK (apksigner)
         id: sign_apk
@@ -109,7 +147,7 @@ jobs:
 
           UNSIGNED_APK="android/app/build/outputs/apk/release/app-release-unsigned.apk"
           ALIGNED_APK="android/app/build/outputs/apk/release/app-release-aligned.apk"
-          FINAL_APK="TapMoneyInfo.apk"
+          FINAL_APK="$APK_NAME"
 
           if [ ! -f "$UNSIGNED_APK" ]; then
             UNSIGNED_APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
@@ -161,8 +199,8 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TapMoneyInfo
-          path: TapMoneyInfo.apk
+          name: TapMoneyInfo-v${{ steps.semver.outputs.version_name }}
+          path: ${{ env.APK_NAME }}
           if-no-files-found: error
           retention-days: 30
 
@@ -170,7 +208,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: TapMoneyInfo.apk
+          files: ${{ env.APK_NAME }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -180,8 +218,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: Latest Build (main)
-          files: TapMoneyInfo.apk
+          name: Latest Build (${{ env.VERSION_NAME }})
+          files: ${{ env.APK_NAME }}
           prerelease: true
           generate_release_notes: true
         env:
