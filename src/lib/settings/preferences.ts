@@ -4,6 +4,7 @@ export interface UserSettings {
   enableSound: boolean;
   enableHaptics: boolean;
   maskCardNumber: boolean;
+  hideBalance: boolean;
   autoSaveHistory: boolean;
   theme: ThemeMode;
 }
@@ -14,6 +15,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   enableSound: true,
   enableHaptics: true,
   maskCardNumber: true,
+  hideBalance: false,
   autoSaveHistory: true,
   theme: 'system',
 };
@@ -32,6 +34,7 @@ export function loadSettings(): UserSettings {
       enableSound: typeof parsed.enableSound === 'boolean' ? parsed.enableSound : DEFAULT_SETTINGS.enableSound,
       enableHaptics: typeof parsed.enableHaptics === 'boolean' ? parsed.enableHaptics : DEFAULT_SETTINGS.enableHaptics,
       maskCardNumber: typeof parsed.maskCardNumber === 'boolean' ? parsed.maskCardNumber : DEFAULT_SETTINGS.maskCardNumber,
+      hideBalance: typeof parsed.hideBalance === 'boolean' ? parsed.hideBalance : DEFAULT_SETTINGS.hideBalance,
       autoSaveHistory: typeof parsed.autoSaveHistory === 'boolean' ? parsed.autoSaveHistory : DEFAULT_SETTINGS.autoSaveHistory,
       theme: validThemes.includes(parsed.theme) ? parsed.theme : DEFAULT_SETTINGS.theme,
     };

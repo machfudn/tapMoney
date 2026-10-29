@@ -1,4 +1,5 @@
 import type { CardBalanceResult } from '../../types';
+import { generateCardNumber } from '../card-formatter';
 
 // Parse BNI TapCash balance payload
 export function parseTapcashPayload(rawBytes: number[], uidHex: string): CardBalanceResult {
@@ -25,8 +26,8 @@ export function parseTapcashPayload(rawBytes: number[], uidHex: string): CardBal
     }
   }
 
-  const cleanUid = uidHex.replace(/[^0-9A-Fa-f]/g, '').padEnd(16, '0');
-  const cardNumber = `7546 **** **** ${cleanUid.slice(-4)}`;
+  // Format 16-digit card number with BNI TapCash prefix
+  const cardNumber = generateCardNumber('7546', uidHex);
 
   return {
     cardType: 'BNI TapCash',

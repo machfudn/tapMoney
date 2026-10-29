@@ -1,4 +1,5 @@
 import type { CardBalanceResult } from '../../types';
+import { generateCardNumber } from '../card-formatter';
 
 // Parse BRI Brizzi DESFire balance payload
 export function parseBrizziPayload(rawBytes: number[], uidHex: string): CardBalanceResult {
@@ -27,8 +28,8 @@ export function parseBrizziPayload(rawBytes: number[], uidHex: string): CardBala
     }
   }
 
-  const cleanUid = uidHex.replace(/[^0-9A-Fa-f]/g, '').padEnd(16, '0');
-  const cardNumber = `5018 **** **** ${cleanUid.slice(-4)}`;
+  // Format 16-digit card number with BRI Brizzi prefix
+  const cardNumber = generateCardNumber('5018', uidHex);
 
   return {
     cardType: 'BRI Brizzi',

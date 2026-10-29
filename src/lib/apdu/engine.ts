@@ -13,10 +13,14 @@ import { parseTapcashPayload } from './parsers/tapcash';
 import { parseBrizziPayload } from './parsers/brizzi';
 import { parseKmtPayload } from './parsers/kmt';
 import { AID_MEGACASH, parseMegaCashPayload } from './parsers/megacash';
+import { generateCardNumber } from './card-formatter';
 
 const AID_EMONEY = 'A000000003000000';
 const AID_FLAZZ = 'A0000000030000';
+const AID_FLAZZ_GEN2 = 'D2760000850101';
 const AID_BRIZZI = '0000030080000000';
+const AID_TAPCASH = 'A000000003000001';
+const AID_TAPCASH_ALT = '315041592E5359532E4444463031'; // 1PAY.SYS.DDF01
 
 async function transceiveApdu(commandBytes: number[]): Promise<number[] | null> {
   if (!Capacitor.isNativePlatform()) {
@@ -73,7 +77,10 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
       }
 
       // 2. Try BCA Flazz
-      const respFlazz = await transceiveApdu(buildSelectAidApdu(AID_FLAZZ));
+      let respFlazz = await transceiveApdu(buildSelectAidApdu(AID_FLAZZ));
+      if (!respFlazz || !parseApduResponse(respFlazz).isSuccess) {
+        respFlazz = await transceiveApdu(buildSelectAidApdu(AID_FLAZZ_GEN2));
+      }
       if (respFlazz) {
         const parsed = parseApduResponse(respFlazz);
         if (parsed.isSuccess) {
@@ -98,7 +105,23 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
         }
       }
 
-      // 4. Try Bank Mega MegaCash
+      // 4. Try BNI TapCash
+      let respTapcash = await transceiveApdu(buildSelectAidApdu(AID_TAPCASH));
+      if (!respTapcash || !parseApduResponse(respTapcash).isSuccess) {
+        respTapcash = await transceiveApdu(buildSelectAidApdu(AID_TAPCASH_ALT));
+      }
+      if (respTapcash) {
+        const parsed = parseApduResponse(respTapcash);
+        if (parsed.isSuccess) {
+          const balanceResp = await transceiveApdu(buildReadBinaryApdu(0, 4));
+          if (balanceResp) {
+            const balanceParsed = parseApduResponse(balanceResp);
+            return parseTapcashPayload(balanceParsed.data, uidHex);
+          }
+        }
+      }
+
+      // 5. Try Bank Mega MegaCash
       const respMegaCash = await transceiveApdu(buildSelectAidApdu(AID_MEGACASH));
       if (respMegaCash) {
         const parsed = parseApduResponse(respMegaCash);
@@ -114,16 +137,22 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
       // transceive failed or not supported by driver
     }
 
-    // Default ISO-DEP fallback: Mandiri
-    return parseEmoneyPayload([0x00, 0x00, 0xc3, 0x50], uidHex);
+    // Default ISO-DEP fallback when no issuer AID recognized
+    return {
+      cardType: 'Kartu Elektronik (ISO-DEP)',
+      issuer: 'Unknown',
+      cardNumber: generateCardNumber('8888', uidHex),
+      balance: 0,
+      lastAmount: 0,
+      timestamp: new Date().toISOString()
+    };
   }
 
   // Fallback for MifareClassic (JakCard) or others
-  const cleanUid = uidHex.replace(/[^0-9A-Fa-f]/g, '').padEnd(16, '0');
   return {
     cardType: 'Bank DKI JakCard',
     issuer: 'DKI',
-    cardNumber: `3101 **** **** ${cleanUid.slice(-4)}`,
+    cardNumber: generateCardNumber('3101', uidHex),
     balance: 0,
     lastAmount: 0,
     timestamp: new Date().toISOString()

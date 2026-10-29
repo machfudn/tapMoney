@@ -1,5 +1,5 @@
 import type { CardBalanceResult } from '../../types';
-import { bytesToHex } from '../commands';
+import { generateCardNumber } from '../card-formatter';
 
 // Parse Mandiri e-Money balance and card details from raw chip bytes
 export function parseEmoneyPayload(rawBytes: number[], uidHex: string): CardBalanceResult {
@@ -29,9 +29,8 @@ export function parseEmoneyPayload(rawBytes: number[], uidHex: string): CardBala
     }
   }
 
-  // Format card number: prefix Mandiri CAN if present or mask from UID
-  const cleanUid = uidHex.replace(/[^0-9A-Fa-f]/g, '').padEnd(16, '0');
-  const cardNumber = `6032 **** **** ${cleanUid.slice(-4)}`;
+  // Format 16-digit card number with Mandiri CAN prefix
+  const cardNumber = generateCardNumber('6032', uidHex);
 
   return {
     cardType: 'Mandiri e-Money',

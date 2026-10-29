@@ -1,5 +1,6 @@
 import { buildSelectAidApdu, buildReadBinaryApdu } from '../commands';
 import type { CardBalanceResult } from '../../types';
+import { generateCardNumber } from '../card-formatter';
 
 export const AID_MEGACASH = 'A0000000030002';
 
@@ -21,9 +22,7 @@ export function parseMegaCashPayload(data: number[], uidHex: string): CardBalanc
     if (balance < 0) balance = 0;
   }
 
-  const cleanUid = uidHex.replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
-  const suffix = cleanUid.length >= 8 ? cleanUid.slice(-8) : cleanUid.padEnd(8, '0');
-  const cardNumber = `6019 8800 ${suffix.slice(0, 4)} ${suffix.slice(4, 8)}`;
+  const cardNumber = generateCardNumber('6019', uidHex);
 
   return {
     cardType: 'Bank Mega MegaCash',

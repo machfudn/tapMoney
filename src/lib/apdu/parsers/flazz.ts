@@ -1,4 +1,5 @@
 import type { CardBalanceResult } from '../../types';
+import { generateCardNumber } from '../card-formatter';
 
 // Parse BCA Flazz Gen 1 and Gen 2 balance payload
 export function parseFlazzPayload(rawBytes: number[], uidHex: string): CardBalanceResult {
@@ -26,8 +27,8 @@ export function parseFlazzPayload(rawBytes: number[], uidHex: string): CardBalan
     }
   }
 
-  const cleanUid = uidHex.replace(/[^0-9A-Fa-f]/g, '').padEnd(16, '0');
-  const cardNumber = `1809 **** **** ${cleanUid.slice(-4)}`;
+  // Format 16-digit card number with BCA Flazz prefix
+  const cardNumber = generateCardNumber('1809', uidHex);
 
   return {
     cardType: 'BCA Flazz',

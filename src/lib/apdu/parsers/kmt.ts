@@ -1,4 +1,5 @@
 import type { CardBalanceResult } from '../../types';
+import { generateCardNumber } from '../card-formatter';
 
 // Parse KMT Commuter Line Sony FeliCa block data
 export function parseKmtPayload(blockBytes: number[], uidHex: string): CardBalanceResult {
@@ -19,8 +20,8 @@ export function parseKmtPayload(blockBytes: number[], uidHex: string): CardBalan
     }
   }
 
-  const cleanUid = uidHex.replace(/[^0-9A-Fa-f]/g, '').padEnd(16, '0');
-  const cardNumber = `1002 **** **** ${cleanUid.slice(-4)}`;
+  // Format 16-digit card number with KMT prefix
+  const cardNumber = generateCardNumber('1002', uidHex);
 
   return {
     cardType: 'KMT Commuter Line',
