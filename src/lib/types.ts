@@ -1,4 +1,4 @@
-export type CardIssuer = 'Mandiri' | 'BCA' | 'BRI' | 'BNI' | 'DKI' | 'KCI' | 'Unknown';
+export type CardIssuer = 'Mandiri' | 'BCA' | 'BRI' | 'BNI' | 'DKI' | 'KCI' | 'Mega' | 'Unknown';
 
 export interface CardBalanceResult {
   cardType: string;

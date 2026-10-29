@@ -12,6 +12,7 @@ import { parseFlazzPayload } from './parsers/flazz';
 import { parseTapcashPayload } from './parsers/tapcash';
 import { parseBrizziPayload } from './parsers/brizzi';
 import { parseKmtPayload } from './parsers/kmt';
+import { AID_MEGACASH, parseMegaCashPayload } from './parsers/megacash';
 
 const AID_EMONEY = 'A000000003000000';
 const AID_FLAZZ = 'A0000000030000';
@@ -96,6 +97,20 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
         if (balanceResp) {
           const balanceParsed = parseApduResponse(balanceResp);
           return parseBrizziPayload(balanceParsed.data, uidHex);
+        }
+      }
+    }
+
+    // 4. Try Bank Mega MegaCash
+    const selectMegaCash = buildSelectAidApdu(AID_MEGACASH);
+    const respMegaCash = await transceiveApdu(selectMegaCash);
+    if (respMegaCash) {
+      const parsed = parseApduResponse(respMegaCash);
+      if (parsed.isSuccess) {
+        const balanceResp = await transceiveApdu(buildReadBinaryApdu(0, 4));
+        if (balanceResp) {
+          const balanceParsed = parseApduResponse(balanceResp);
+          return parseMegaCashPayload(balanceParsed.data, uidHex);
         }
       }
     }
