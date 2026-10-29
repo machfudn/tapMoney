@@ -3,6 +3,15 @@ node_modules/
 dist/
 dist-ssr/
 .svelte-kit/
+# Test Suites & Testing Configs
+e2e/
+test/
+tests/
+playwright.config.ts
+test-results/
+playwright-report/
+coverage/
+src/assets/raw_drawables/
 *.local
 
 # Android, Native Build, & Binaries
