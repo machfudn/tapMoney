@@ -1,0 +1,193 @@
+name: Build & Sign Release APK
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build Type (release or debug)'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  quality-gate:
+    name: Quality Gate & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Svelte & TypeScript Check
+        run: npm run check
+
+      - name: Vite Web Build
+        run: npm run build
+
+  build-apk:
+    name: Build & Sign Android APK
+    needs: quality-gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Cache Gradle Packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Install NPM Dependencies
+        run: npm ci
+
+      - name: Build Web Dist
+        run: npm run build
+
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+
+      - name: Make Gradlew Executable
+        run: chmod +x android/gradlew
+
+      - name: Build Android Release APK
+        run: |
+          cd android
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Sign APK (apksigner)
+        id: sign_apk
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          BUILD_TOOLS_DIR=$(find $ANDROID_HOME/build-tools -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
+          ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
+
+          UNSIGNED_APK="android/app/build/outputs/apk/release/app-release-unsigned.apk"
+          ALIGNED_APK="android/app/build/outputs/apk/release/app-release-aligned.apk"
+          FINAL_APK="TapMoneyInfo.apk"
+
+          if [ ! -f "$UNSIGNED_APK" ]; then
+            # If assembleRelease produced already-signed apk or standard name
+            UNSIGNED_APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          fi
+
+          echo "Aligning APK..."
+          "$ZIPALIGN" -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
+
+          # Determine keystore: use secret if provided, otherwise generate temporary release key
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Using repository secret KEYSTORE_BASE64..."
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+            KEY_ALIAS_TO_USE="${KEY_ALIAS:-tapmoney}"
+            STORE_PASS="${KEYSTORE_PASSWORD:-tapmoney123}"
+            KEY_PASS="${KEY_PASSWORD:-tapmoney123}"
+          else
+            echo "KEYSTORE_BASE64 not configured in secrets. Generating self-signed CI release key..."
+            keytool -genkeypair -v \
+              -keystore release.keystore \
+              -alias tapmoney \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass tapmoney123 \
+              -keypass tapmoney123 \
+              -dname "CN=TapMoney Info, OU=Development, O=Machfudin, L=Jakarta, ST=DKI Jakarta, C=ID"
+            KEY_ALIAS_TO_USE="tapmoney"
+            STORE_PASS="tapmoney123"
+            KEY_PASS="tapmoney123"
+          fi
+
+          echo "Signing APK with apksigner (V1, V2, V3)..."
+          "$APKSIGNER" sign \
+            --ks release.keystore \
+            --ks-key-alias "$KEY_ALIAS_TO_USE" \
+            --ks-pass "pass:$STORE_PASS" \
+            --key-pass "pass:$KEY_PASS" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out "$FINAL_APK" \
+            "$ALIGNED_APK"
+
+          echo "Verifying signed APK..."
+          "$APKSIGNER" verify --verbose "$FINAL_APK"
+
+          echo "Signed APK successfully created: $FINAL_APK"
+          ls -lh "$FINAL_APK"
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TapMoneyInfo
+          path: TapMoneyInfo.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release (Tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: TapMoneyInfo.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Latest Release (Push to main)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build (main)
+          files: TapMoneyInfo.apk
+          prerelease: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
