@@ -1,9 +1,10 @@
 import type { BackendCardDefinition, CardBalanceResult } from './types';
 
-// API base URL configured via VITE_API_URL, fallback to localhost for development
-const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/+$/, '');
+// Base URL strictly resolved from environment variable VITE_API_URL (zero hardcoded URLs)
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
 
 export async function fetchCardDefinitions(): Promise<BackendCardDefinition[]> {
+  if (!API_BASE_URL) return [];
   try {
     const res = await fetch(`${API_BASE_URL}/api/cards/definitions`);
     if (!res.ok) return [];
@@ -15,6 +16,7 @@ export async function fetchCardDefinitions(): Promise<BackendCardDefinition[]> {
 }
 
 export async function resolveMerchantName(code: string): Promise<string> {
+  if (!API_BASE_URL) return 'Merchant Umum';
   try {
     const res = await fetch(`${API_BASE_URL}/api/cards/resolve-merchant`, {
       method: 'POST',
@@ -30,6 +32,7 @@ export async function resolveMerchantName(code: string): Promise<string> {
 }
 
 export async function syncTapHistory(card: CardBalanceResult, merchantCode?: string): Promise<boolean> {
+  if (!API_BASE_URL) return false;
   try {
     const res = await fetch(`${API_BASE_URL}/api/cards/history`, {
       method: 'POST',
