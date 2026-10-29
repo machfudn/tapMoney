@@ -9,6 +9,11 @@
     readCardViaApdu,
     identifyCardFromTag
   } from './lib/nfc';
+  import {
+    formatDisplayBalance,
+    formatDisplayCardNumber,
+    getRawCardNumber
+  } from './lib/apdu/card-formatter';
   import { syncTapHistory, fetchCardDefinitions } from './lib/api';
   import {
     saveTapRecord,
@@ -31,11 +36,13 @@
     printCurrentReceipt
   } from './lib/receipt/receipt';
   import type { CardBalanceResult, BackendCardDefinition, CardIssuer } from './lib/types';
+  import { getCardTheme } from './lib/cards/card-assets';
 
   let nfcSupported = $state(false);
   let nfcEnabled = $state(false);
   let isScanning = $state(false);
   let currentCard = $state<CardBalanceResult | null>(null);
+  let activeTheme = $derived(currentCard ? getCardTheme(currentCard.issuer) : null);
   let scanHistory = $state<CardBalanceResult[]>([]);
   let cardDefinitions = $state<BackendCardDefinition[]>([]);
   let statusMessage = $state('Tempelkan kartu di belakang ponsel');
@@ -59,20 +66,11 @@
     }, 2400);
   }
 
-  function formatDisplayCardNumber(num: string, masked: boolean): string {
-    if (!num || num.includes('----')) return '---- ---- ---- ----';
-    if (!masked) return num;
-    const parts = num.split(' ');
-    if (parts.length === 4) {
-      return `${parts[0]} **** **** ${parts[3]}`;
-    }
-    return num;
-  }
-
   async function handleCopyCardNumber(num: string) {
-    if (!num || num.includes('----')) return;
+    const raw = getRawCardNumber(num);
+    if (!raw || raw.includes('-')) return;
     try {
-      await navigator.clipboard.writeText(num.replace(/\s+/g, ''));
+      await navigator.clipboard.writeText(raw);
       if (settings.enableSound) playTapBeep();
       if (settings.enableHaptics) triggerHaptics();
       showToast('Nomor kartu disalin');
@@ -110,6 +108,30 @@
     }
   }
 
+  function calculateBalanceDelta(newCard: CardBalanceResult): {
+    delta: number;
+    type: 'Top up' | 'Payment' | 'None';
+  } {
+    let prevCard: CardBalanceResult | null = null;
+    if (currentCard && currentCard.cardNumber === newCard.cardNumber) {
+      prevCard = currentCard;
+    } else {
+      prevCard = scanHistory.find(h => h.cardNumber === newCard.cardNumber) || null;
+    }
+
+    if (!prevCard) {
+      return { delta: 0, type: 'None' };
+    }
+
+    const delta = newCard.balance - prevCard.balance;
+    if (delta > 0) {
+      return { delta, type: 'Top up' };
+    } else if (delta < 0) {
+      return { delta: Math.abs(delta), type: 'Payment' };
+    }
+    return { delta: 0, type: 'None' };
+  }
+
   async function processDiscoveredCard(event: NfcEvent) {
     try {
       let card: CardBalanceResult;
@@ -118,6 +140,9 @@
       } catch {
         card = identifyCardFromTag(event);
       }
+
+      const { delta, type: changeType } = calculateBalanceDelta(card);
+      card.lastAmount = delta > 0 ? delta : (card.lastAmount || 0);
 
       currentCard = card;
 
@@ -130,7 +155,15 @@
         syncTapHistory(card, 'GT_CILILITAN_1');
       }
 
-      statusMessage = `Kartu terbaca: ${card.cardType}`;
+      if (changeType === 'Top up') {
+        showToast(`Saldo bertambah +${formatRupiah(delta)}`);
+        statusMessage = `Top up berhasil: +${formatRupiah(delta)}`;
+      } else if (changeType === 'Payment') {
+        showToast(`Saldo terpotong -${formatRupiah(delta)}`);
+        statusMessage = `Terpotong: -${formatRupiah(delta)}`;
+      } else {
+        statusMessage = `Kartu terbaca: ${card.cardType}`;
+      }
     } catch {
       statusMessage = 'Gagal memproses data kartu';
     }
@@ -249,7 +282,7 @@
     }, 2000);
   }
 
-  async function simulateCardTap(type: 'Mandiri' | 'BCA' | 'BRI' | 'BNI' | 'KCI' | 'Mega') {
+  async function simulateCardTap(type: 'Mandiri' | 'BCA' | 'BRI' | 'BNI' | 'KCI' | 'Mega', customBalance?: number) {
     const mockMap = {
       Mandiri: { type: 'Mandiri e-Money', num: '6032 1290 8820 1290', bal: 87500, issuer: 'Mandiri' as const },
       BCA: { type: 'BCA Flazz', num: '1809 3321 4410 8821', bal: 142000, issuer: 'BCA' as const },
@@ -260,14 +293,18 @@
     };
 
     const target = mockMap[type];
+    const cardBalance = typeof customBalance === 'number' ? customBalance : target.bal;
     const card: CardBalanceResult = {
       cardType: target.type,
       issuer: target.issuer,
       cardNumber: target.num,
-      balance: target.bal,
-      lastAmount: 3500,
+      balance: cardBalance,
+      lastAmount: 0,
       timestamp: new Date().toISOString()
     };
+
+    const { delta, type: changeType } = calculateBalanceDelta(card);
+    card.lastAmount = delta > 0 ? delta : 0;
 
     currentCard = card;
 
@@ -280,13 +317,33 @@
       syncTapHistory(card, 'GT_CILILITAN_1');
     }
 
-    statusMessage = `Simulasi sukses: ${card.cardType}`;
+    if (changeType === 'Top up') {
+      showToast(`Saldo bertambah +${formatRupiah(delta)}`);
+      statusMessage = `Top up sukses: +${formatRupiah(delta)}`;
+    } else if (changeType === 'Payment') {
+      showToast(`Saldo terpotong -${formatRupiah(delta)}`);
+      statusMessage = `Terpotong: -${formatRupiah(delta)}`;
+    } else {
+      statusMessage = `Simulasi sukses: ${card.cardType}`;
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    (window as any).__simulateCardTap = simulateCardTap;
   }
 
   async function handleClearHistory() {
     await clearStoredHistory();
     scanHistory = [];
-    showToast('Riwayat berhasil dibersihkan');
+    currentCard = null;
+    statusMessage = 'Tempelkan kartu di belakang ponsel';
+    showToast('Riwayat dan kartu dibersihkan');
+  }
+
+  function handleClearCurrentCard() {
+    currentCard = null;
+    statusMessage = 'Tempelkan kartu di belakang ponsel';
+    showToast('Tampilan kartu aktif ditutup');
   }
 
   onMount(async () => {
@@ -389,13 +446,25 @@
       role="button"
       tabindex="0"
       onkeydown={(e) => e.key === 'Enter' && currentCard && handleCopyCardNumber(currentCard.cardNumber)}
+      title={currentCard ? 'Ketuk untuk menyalin nomor kartu' : undefined}
     >
+      {#if activeTheme?.bgImage}
+        <img
+          class="card-bg-art"
+          src={activeTheme.bgImage}
+          alt=""
+          aria-hidden="true"
+          loading="eager"
+        />
+      {/if}
+      <div class="card-gloss-sheen" aria-hidden="true"></div>
+
       <div class="card-header-row">
         <div class="card-brand-label">
           {currentCard ? currentCard.cardType : 'UANG ELEKTRONIK'}
         </div>
-        <div class="nfc-contactless-mark">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <div class="nfc-contactless-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
             <path d="M8.5 16.5a5 5 0 0 1 0-7" />
             <path d="M12 19a8.5 8.5 0 0 1 0-14" />
             <path d="M15.5 21.5a12 12 0 0 1 0-19" />
@@ -403,20 +472,65 @@
         </div>
       </div>
 
-      <div class="smart-chip">
-        <div class="smart-chip-grid"></div>
-      </div>
+      <div class="card-body-row">
+        <div class="smart-chip" aria-hidden="true">
+          <div class="smart-chip-grid"></div>
+          <div class="smart-chip-core"></div>
+        </div>
 
-      <div class="card-balance-block">
-        <span class="card-balance-tag">Saldo Tersedia</span>
-        <div class="card-balance-amount">
-          {currentCard ? formatRupiah(currentCard.balance) : 'Rp 0'}
+        <div class="card-balance-block">
+          <div class="card-balance-row">
+            <span class="card-balance-tag">Saldo Tersedia</span>
+            <button
+              type="button"
+              class="balance-eye-btn"
+              onclick={(e) => { e.stopPropagation(); updateSetting('hideBalance', !settings.hideBalance); }}
+              title={settings.hideBalance ? 'Tampilkan saldo' : 'Sembunyikan saldo'}
+              aria-label={settings.hideBalance ? 'Tampilkan saldo' : 'Sembunyikan saldo'}
+            >
+              {#if settings.hideBalance}
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
+              {:else}
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              {/if}
+            </button>
+          </div>
+          <div class="card-balance-amount">
+            {currentCard ? formatDisplayBalance(currentCard.balance, settings.hideBalance) : 'Rp 0'}
+          </div>
         </div>
       </div>
 
       <div class="card-footer-row">
         <div class="card-pan-wrapper">
-          <span class="card-pan-label">Nomor Kartu</span>
+          <div class="card-pan-label-row">
+            <span class="card-pan-label">Nomor Kartu</span>
+            <button
+              type="button"
+              class="pan-eye-btn"
+              onclick={(e) => { e.stopPropagation(); updateSetting('maskCardNumber', !settings.maskCardNumber); }}
+              title={settings.maskCardNumber ? 'Buka sensor nomor' : 'Sensor nomor kartu'}
+              aria-label={settings.maskCardNumber ? 'Buka sensor nomor' : 'Sensor nomor kartu'}
+            >
+              {#if settings.maskCardNumber}
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
+              {:else}
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              {/if}
+            </button>
+          </div>
           <span class="card-pan">
             {currentCard ? formatDisplayCardNumber(currentCard.cardNumber, settings.maskCardNumber) : '•••• •••• •••• ••••'}
           </span>
@@ -459,6 +573,13 @@
           </svg>
           Cetak
         </button>
+        <button class="action-btn action-btn-danger" onclick={handleClearCurrentCard} title="Tutup kartu aktif">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6" />
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          </svg>
+          Tutup
+        </button>
       </div>
     {/if}
 
@@ -478,6 +599,7 @@
       <div class="sim-grid">
         <button class="btn btn-mock" onclick={() => simulateCardTap('Mandiri')}>e-Money</button>
         <button class="btn btn-mock" onclick={() => simulateCardTap('BCA')}>Flazz</button>
+        <button class="btn btn-mock btn-mock-topup" onclick={() => simulateCardTap('BCA', (currentCard?.issuer === 'BCA' ? currentCard.balance : 142000) + 100000)}>Flazz Top Up (+100k)</button>
         <button class="btn btn-mock" onclick={() => simulateCardTap('BRI')}>Brizzi</button>
         <button class="btn btn-mock" onclick={() => simulateCardTap('BNI')}>TapCash</button>
         <button class="btn btn-mock" onclick={() => simulateCardTap('KCI')}>KMT</button>
@@ -533,7 +655,7 @@
               </span>
             </div>
             <div class="history-row-side">
-              <span class="history-amount">{formatRupiah(item.balance)}</span>
+              <span class="history-amount">{formatDisplayBalance(item.balance, settings.hideBalance)}</span>
             </div>
           </div>
         {/each}
@@ -647,6 +769,19 @@
               class="ios-switch"
               checked={settings.maskCardNumber}
               onchange={(e) => updateSetting('maskCardNumber', (e.target as HTMLInputElement).checked)}
+            />
+          </label>
+
+          <label class="setting-row">
+            <div>
+              <div class="setting-title">Sembunyikan Saldo</div>
+              <div class="setting-description">Tutup nominal saldo dengan sensor titik</div>
+            </div>
+            <input
+              type="checkbox"
+              class="ios-switch"
+              checked={settings.hideBalance}
+              onchange={(e) => updateSetting('hideBalance', (e.target as HTMLInputElement).checked)}
             />
           </label>
 
@@ -925,30 +1060,63 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
+    width: 100%;
   }
 
   .card-surface {
-    height: 200px;
-    border-radius: 20px;
-    padding: 22px;
+    aspect-ratio: 1.586 / 1;
+    min-height: 204px;
+    width: 100%;
+    max-width: 420px;
+    margin: 0 auto;
+    border-radius: 18px;
+    padding: 20px 22px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     position: relative;
     overflow: hidden;
     cursor: pointer;
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
+    box-shadow:
+      0 14px 34px -6px rgba(0, 0, 0, 0.45),
+      0 24px 56px -12px rgba(0, 0, 0, 0.35),
+      inset 0 1px 1.5px rgba(255, 255, 255, 0.35),
+      inset 0 -1.5px 2px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+    user-select: none;
   }
 
   .card-surface:active {
     transform: scale(0.985);
   }
 
+  .card-bg-art {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: inherit;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .card-gloss-sheen {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.03) 35%, rgba(0, 0, 0, 0.2) 75%, rgba(0, 0, 0, 0.45) 100%),
+      linear-gradient(to bottom, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.08) 40%, rgba(0, 0, 0, 0.45) 100%);
+    pointer-events: none;
+    z-index: 1;
+  }
+
   /* Card Skins */
   .card-surface--empty {
     background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border: 1px dashed rgba(255, 255, 255, 0.2);
   }
 
   .card-surface.mandiri {
@@ -967,6 +1135,10 @@
     background: linear-gradient(135deg, #ea580c 0%, #c2410c 50%, #7c2d12 100%);
   }
 
+  .card-surface.dki {
+    background: linear-gradient(135deg, #0d9488 0%, #0f766e 50%, #115e59 100%);
+  }
+
   .card-surface.kci {
     background: linear-gradient(135deg, #dc2626 0%, #b91c1c 50%, #7f1d1d 100%);
   }
@@ -975,10 +1147,18 @@
     background: linear-gradient(135deg, #d97706 0%, #b45309 50%, #78350f 100%);
   }
 
-  .card-header-row {
+  .card-header-row,
+  .card-body-row,
+  .card-footer-row {
+    position: relative;
+    z-index: 2;
     display: flex;
     justify-content: space-between;
     align-items: center;
+  }
+
+  .card-body-row {
+    gap: 16px;
   }
 
   .card-brand-label {
@@ -986,104 +1166,211 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.95);
+    color: #ffffff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8), 0 2px 6px rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+  }
+
+  .card-issuer-logo {
+    max-height: 28px;
+    max-width: 110px;
+    object-fit: contain;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
   }
 
   .nfc-contactless-mark {
-    color: rgba(255, 255, 255, 0.85);
+    color: #ffffff;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+    display: flex;
+    align-items: center;
   }
 
   .smart-chip {
-    width: 44px;
-    height: 32px;
+    width: 46px;
+    height: 35px;
     border-radius: 6px;
-    background: linear-gradient(135deg, #fcd34d 0%, #f59e0b 50%, #d97706 100%);
-    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4), 0 2px 6px rgba(0, 0, 0, 0.25);
+    background: linear-gradient(135deg, #fef08a 0%, #eab308 28%, #ca8a04 68%, #a16207 100%);
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.7),
+      inset 0 -1px 1px rgba(0, 0, 0, 0.6),
+      0 2px 6px rgba(0, 0, 0, 0.4);
     position: relative;
     overflow: hidden;
+    border: 0.5px solid rgba(161, 98, 7, 0.7);
+    flex-shrink: 0;
   }
 
   .smart-chip-grid {
     position: absolute;
-    inset: 4px;
-    border: 1px solid rgba(120, 53, 15, 0.45);
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .smart-chip-grid::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: rgba(113, 63, 18, 0.6);
+    transform: translateY(-50%);
+  }
+
+  .smart-chip-grid::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 36%;
+    width: 28%;
+    border-left: 1px solid rgba(113, 63, 18, 0.6);
+    border-right: 1px solid rgba(113, 63, 18, 0.6);
+  }
+
+  .smart-chip-core {
+    position: absolute;
+    top: 24%;
+    bottom: 24%;
+    left: 32%;
+    right: 32%;
+    border: 1px solid rgba(113, 63, 18, 0.6);
     border-radius: 3px;
+    background: rgba(254, 240, 138, 0.2);
   }
 
   .card-balance-block {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    align-items: flex-end;
+    gap: 3px;
+    text-align: right;
+  }
+
+  .card-balance-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .balance-eye-btn, .pan-eye-btn {
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    color: #ffffff;
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 3px 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    transition: all 0.15s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+
+  .balance-eye-btn:hover, .pan-eye-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.4);
   }
 
   .card-balance-tag {
-    font-size: 11px;
-    font-weight: 500;
+    font-size: 10px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: rgba(255, 255, 255, 0.65);
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.85);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
   }
 
   .card-balance-amount {
-    font-size: 30px;
+    font-family: ui-monospace, 'Courier New', Menlo, Consolas, monospace;
+    font-size: 28px;
     font-weight: 800;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
     color: #ffffff;
     font-variant-numeric: tabular-nums;
+    text-shadow:
+      1px 1px 0px rgba(255, 255, 255, 0.7),
+      -1px -1px 0px rgba(0, 0, 0, 0.6),
+      0px 2px 5px rgba(0, 0, 0, 0.85);
   }
 
   .card-footer-row {
-    display: flex;
-    justify-content: space-between;
     align-items: flex-end;
   }
 
   .card-pan-wrapper {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
+  }
+
+  .card-pan-label-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
 
   .card-pan-label, .card-time-label {
     font-size: 10px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: rgba(255, 255, 255, 0.55);
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.85);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
   }
 
   .card-pan {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.9);
+    font-family: 'OCR A Extended', 'Courier New', Consolas, monospace, ui-monospace;
+    font-size: 14.5px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    color: #f8fafc;
+    text-shadow:
+      1px 1px 0px rgba(255, 255, 255, 0.75),
+      -1px -1px 0px rgba(0, 0, 0, 0.65),
+      0px 2px 4px rgba(0, 0, 0, 0.85);
+    user-select: all;
+  }
+
+  .card-time-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    text-align: right;
   }
 
   .card-time {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-family: ui-monospace, 'Courier New', Menlo, monospace;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.85);
+    font-weight: 600;
+    color: #ffffff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
   }
 
   /* Action Buttons Grid */
   .action-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
   }
 
   .action-btn {
     background: var(--surface-card);
     border: 1px solid var(--border-subtle);
     color: var(--text-primary);
-    padding: 10px 12px;
+    padding: 10px 8px;
     border-radius: 12px;
     font-size: 12px;
     font-weight: 600;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 5px;
     cursor: pointer;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     transition: all 0.15s ease;
@@ -1092,6 +1379,15 @@
   .action-btn:hover {
     background: var(--surface-card-hover);
     border-color: var(--border-hover);
+  }
+
+  .action-btn-danger {
+    color: #ef4444;
+  }
+
+  .action-btn-danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
   }
 
   /* Radar / Sensor Box */
