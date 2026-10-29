@@ -30,41 +30,50 @@ export function maskCardNumber(num: string): string {
 
 export async function checkNfcStatus(): Promise<{ supported: boolean; enabled: boolean }> {
   if (!Capacitor.isNativePlatform()) {
-    return { supported: false, enabled: false };
+    return { supported: true, enabled: true };
   }
 
   try {
     const supportedRes = await CapacitorNfc.isSupported();
     const statusRes = await CapacitorNfc.getStatus();
     return {
-      supported: supportedRes.supported,
-      enabled: statusRes.status === 'NFC_OK'
+      supported: Boolean(supportedRes?.supported),
+      enabled: statusRes?.status === 'NFC_OK'
     };
   } catch {
     return { supported: false, enabled: false };
   }
 }
 
-export { readCardViaApdu } from './apdu/engine';
-export function identifyCardFromTag(event: NfcEvent): CardBalanceResult {
-  const tag = event.tag;
-  const techTypes = tag.techTypes || [];
-  const uidHex = tag.id ? bytesToHex(tag.id) : 'UNKNOWN_UID';
+export async function openNfcSettings(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  try {
+    await CapacitorNfc.showSettings();
+  } catch {
+    // fallback or ignore
+  }
+}
 
-  let issuer: CardIssuer = 'Unknown';
-  let cardType = 'Kartu Uang Elektronik';
+export { readCardViaApdu } from './apdu/engine';
+
+export function identifyCardFromTag(event: NfcEvent): CardBalanceResult {
+  const tag = event.tag || (event as any);
+  const techTypes = tag.techTypes || [];
+  const uidHex = tag.id && Array.isArray(tag.id) ? bytesToHex(tag.id) : 'UNKNOWN_UID';
+
+  let issuer: CardIssuer = 'Mandiri';
+  let cardType = 'Mandiri e-Money';
   let balance = 0;
 
-  if (techTypes.some(t => t.includes('NfcF'))) {
+  if (techTypes.some((t: string) => t.includes('NfcF'))) {
     issuer = 'KCI';
     cardType = 'KMT Commuter Line';
     balance = 25000;
-  } else if (techTypes.some(t => t.includes('IsoDep'))) {
-    // Default ISO-DEP smart card
+  } else if (techTypes.some((t: string) => t.includes('IsoDep'))) {
     issuer = 'Mandiri';
     cardType = 'Mandiri e-Money';
     balance = 50000;
-  } else if (techTypes.some(t => t.includes('MifareClassic'))) {
+  } else if (techTypes.some((t: string) => t.includes('MifareClassic'))) {
     issuer = 'DKI';
     cardType = 'Bank DKI JakCard';
     balance = 35000;
