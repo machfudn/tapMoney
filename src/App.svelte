@@ -18,7 +18,9 @@
   import {
     loadSettings,
     saveSettings,
-    type UserSettings
+    applyTheme,
+    type UserSettings,
+    type ThemeMode
   } from './lib/settings/preferences';
   import {
     playTapBeep,
@@ -47,6 +49,7 @@
   let tagDiscoveredListener: PluginListenerHandle | null = null;
   let nfcEventListener: PluginListenerHandle | null = null;
   let pollInterval: ReturnType<typeof setInterval> | null = null;
+  let systemThemeQuery: MediaQueryList | null = null;
 
   function showToast(msg: string) {
     toastMessage = msg;
@@ -96,6 +99,15 @@
   function updateSetting<K extends keyof UserSettings>(key: K, val: UserSettings[K]) {
     settings[key] = val;
     saveSettings({ [key]: val });
+    if (key === 'theme') {
+      applyTheme(val as ThemeMode);
+    }
+  }
+
+  function handleSystemThemeChange() {
+    if (settings.theme === 'system') {
+      applyTheme('system');
+    }
   }
 
   async function processDiscoveredCard(event: NfcEvent) {
@@ -131,7 +143,6 @@
     }
 
     try {
-      // Remove any previous tag listeners before re-binding
       if (tagDiscoveredListener) {
         await tagDiscoveredListener.remove();
         tagDiscoveredListener = null;
@@ -210,7 +221,6 @@
       return;
     }
 
-    // Register real-time NFC state change listener
     try {
       stateChangeListener = await CapacitorNfc.addListener('nfcStateChange', async (e: NfcStateChangeEvent) => {
         nfcEnabled = e.enabled || e.status === 'NFC_OK';
@@ -228,7 +238,6 @@
 
     await refreshNfcState();
 
-    // App state listener & polling fallback when returning from Android Settings
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
         refreshNfcState();
@@ -281,6 +290,13 @@
   }
 
   onMount(async () => {
+    applyTheme(settings.theme);
+
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      systemThemeQuery.addEventListener('change', handleSystemThemeChange);
+    }
+
     try {
       const stored = await getStoredHistory(20);
       scanHistory = stored.map(s => ({
@@ -304,6 +320,9 @@
     if (stateChangeListener) stateChangeListener.remove();
     if (tagDiscoveredListener) tagDiscoveredListener.remove();
     if (nfcEventListener) nfcEventListener.remove();
+    if (systemThemeQuery) {
+      systemThemeQuery.removeEventListener('change', handleSystemThemeChange);
+    }
   });
 </script>
 
@@ -527,7 +546,7 @@
       <div
         class="modal-sheet"
         onclick={(e) => e.stopPropagation()}
-        onkeydown={(e) => e.key === "Escape" && (showSettingsModal = false)}
+        onkeydown={(e) => e.key === 'Escape' && (showSettingsModal = false)}
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
@@ -544,6 +563,54 @@
         </div>
 
         <div class="settings-items">
+          <!-- Theme Selector -->
+          <div class="setting-group">
+            <div class="setting-title">Tema Tampilan</div>
+            <div class="setting-description">Pilih tema antarmuka aplikasi</div>
+            <div class="theme-segmented-control">
+              <button
+                type="button"
+                class="theme-segment {settings.theme === 'system' ? 'theme-segment--active' : ''}"
+                onclick={() => updateSetting('theme', 'system')}
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <line x1="8" y1="21" x2="16" y2="21" />
+                  <line x1="12" y1="17" x2="12" y2="21" />
+                </svg>
+                <span>Sistem</span>
+              </button>
+              <button
+                type="button"
+                class="theme-segment {settings.theme === 'light' ? 'theme-segment--active' : ''}"
+                onclick={() => updateSetting('theme', 'light')}
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="5" />
+                  <line x1="12" y1="1" x2="12" y2="3" />
+                  <line x1="12" y1="21" x2="12" y2="23" />
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                  <line x1="1" y1="12" x2="3" y2="12" />
+                  <line x1="21" y1="12" x2="23" y2="12" />
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                </svg>
+                <span>Terang</span>
+              </button>
+              <button
+                type="button"
+                class="theme-segment {settings.theme === 'dark' ? 'theme-segment--active' : ''}"
+                onclick={() => updateSetting('theme', 'dark')}
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+                <span>Gelap</span>
+              </button>
+            </div>
+          </div>
+
           <label class="setting-row">
             <div>
               <div class="setting-title">Umpan Balik Suara</div>
@@ -616,14 +683,73 @@
     box-sizing: border-box;
   }
 
+  /* Design Tokens System: Light vs Dark Theme Variables */
+  :global(:root) {
+    --bg-page: #090d16;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --surface-card: #131b2e;
+    --surface-card-hover: #1e293b;
+    --surface-elevated: #1e293b;
+    --surface-sheet: #0f172a;
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-hover: rgba(255, 255, 255, 0.16);
+    --primary-color: #0284c7;
+    --primary-hover: #0369a1;
+    --brand-icon-color: #38bdf8;
+    --accent-glow: rgba(56, 189, 248, 0.15);
+    --modal-backdrop-bg: rgba(0, 0, 0, 0.75);
+    --toast-bg: #1e293b;
+  }
+
+  :global(.theme-light) {
+    --bg-page: #f8fafc;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --surface-card: #ffffff;
+    --surface-card-hover: #f1f5f9;
+    --surface-elevated: #f8fafc;
+    --surface-sheet: #ffffff;
+    --border-subtle: #e2e8f0;
+    --border-hover: #cbd5e1;
+    --primary-color: #0284c7;
+    --primary-hover: #0369a1;
+    --brand-icon-color: #0284c7;
+    --accent-glow: rgba(2, 132, 199, 0.12);
+    --modal-backdrop-bg: rgba(15, 23, 42, 0.45);
+    --toast-bg: #0f172a;
+  }
+
+  :global(.theme-dark) {
+    --bg-page: #090d16;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --surface-card: #131b2e;
+    --surface-card-hover: #1e293b;
+    --surface-elevated: #1e293b;
+    --surface-sheet: #0f172a;
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-hover: rgba(255, 255, 255, 0.16);
+    --primary-color: #0284c7;
+    --primary-hover: #0369a1;
+    --brand-icon-color: #38bdf8;
+    --accent-glow: rgba(56, 189, 248, 0.15);
+    --modal-backdrop-bg: rgba(0, 0, 0, 0.75);
+    --toast-bg: #1e293b;
+  }
+
   :global(body) {
     margin: 0;
     padding: 0;
-    background-color: #090d16;
-    color: #e2e8f0;
+    background-color: var(--bg-page);
+    color: var(--text-primary);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     -webkit-tap-highlight-color: transparent;
+    transition: background-color 0.25s ease, color 0.25s ease;
   }
 
   .shell {
@@ -657,13 +783,13 @@
     width: 42px;
     height: 42px;
     border-radius: 12px;
-    background: linear-gradient(135deg, #1e293b, #0f172a);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--surface-card);
+    border: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #38bdf8;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    color: var(--brand-icon-color);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   }
 
   .brand-icon {
@@ -676,13 +802,13 @@
     font-size: 19px;
     font-weight: 700;
     letter-spacing: -0.02em;
-    color: #f8fafc;
+    color: var(--text-primary);
   }
 
   .brand-caption {
     margin: 2px 0 0 0;
     font-size: 12px;
-    color: #94a3b8;
+    color: var(--text-secondary);
   }
 
   .header-actions {
@@ -704,13 +830,13 @@
 
   .status-pill--active {
     background: rgba(16, 185, 129, 0.12);
-    color: #34d399;
+    color: #10b981;
     border: 1px solid rgba(16, 185, 129, 0.3);
   }
 
   .status-pill--inactive {
     background: rgba(239, 68, 68, 0.12);
-    color: #f87171;
+    color: #ef4444;
     border: 1px solid rgba(239, 68, 68, 0.3);
   }
 
@@ -722,9 +848,9 @@
   }
 
   .btn-icon {
-    background: #1e293b;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: #94a3b8;
+    background: var(--surface-card);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
     width: 36px;
     height: 36px;
     border-radius: 10px;
@@ -736,9 +862,9 @@
   }
 
   .btn-icon:hover {
-    color: #f8fafc;
-    background: #334155;
-    border-color: rgba(255, 255, 255, 0.16);
+    color: var(--text-primary);
+    background: var(--surface-card-hover);
+    border-color: var(--border-hover);
   }
 
   /* NFC Disabled Alert Banner */
@@ -759,7 +885,7 @@
   }
 
   .nfc-alert-icon {
-    color: #f87171;
+    color: #ef4444;
     flex-shrink: 0;
     margin-top: 1px;
   }
@@ -767,12 +893,12 @@
   .nfc-alert-title {
     font-size: 14px;
     font-weight: 600;
-    color: #fecaca;
+    color: #f87171;
   }
 
   .nfc-alert-desc {
     font-size: 12px;
-    color: #fca5a5;
+    color: var(--text-secondary);
     margin-top: 2px;
     line-height: 1.4;
   }
@@ -811,7 +937,7 @@
     position: relative;
     overflow: hidden;
     cursor: pointer;
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
     border: 1px solid rgba(255, 255, 255, 0.12);
     transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
   }
@@ -820,7 +946,7 @@
     transform: scale(0.985);
   }
 
-  /* Card Skins with Elegant Gradients */
+  /* Card Skins */
   .card-surface--empty {
     background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
   }
@@ -947,9 +1073,9 @@
   }
 
   .action-btn {
-    background: #1e293b;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: #cbd5e1;
+    background: var(--surface-card);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
     padding: 10px 12px;
     border-radius: 12px;
     font-size: 12px;
@@ -959,13 +1085,13 @@
     justify-content: center;
     gap: 6px;
     cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     transition: all 0.15s ease;
   }
 
   .action-btn:hover {
-    background: #334155;
-    color: #f8fafc;
-    border-color: rgba(255, 255, 255, 0.18);
+    background: var(--surface-card-hover);
+    border-color: var(--border-hover);
   }
 
   /* Radar / Sensor Box */
@@ -973,8 +1099,8 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    background: #131b2e;
-    border: 1px solid rgba(56, 189, 248, 0.15);
+    background: var(--surface-card);
+    border: 1px solid var(--border-subtle);
     padding: 13px 16px;
     border-radius: 14px;
   }
@@ -983,7 +1109,7 @@
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: #38bdf8;
+    background: var(--brand-icon-color);
     flex-shrink: 0;
   }
 
@@ -993,14 +1119,14 @@
 
   @keyframes radar-ping {
     0% { transform: scale(0.95); opacity: 0.8; }
-    50% { transform: scale(1.4); opacity: 1; box-shadow: 0 0 10px #38bdf8; }
+    50% { transform: scale(1.4); opacity: 1; box-shadow: 0 0 10px var(--brand-icon-color); }
     100% { transform: scale(0.95); opacity: 0.8; }
   }
 
   .radar-label {
     margin: 0;
     font-size: 13px;
-    color: #94a3b8;
+    color: var(--text-secondary);
     line-height: 1.4;
   }
 
@@ -1017,19 +1143,19 @@
     font-size: 15px;
     font-weight: 600;
     letter-spacing: -0.01em;
-    color: #f8fafc;
+    color: var(--text-primary);
   }
 
   /* Simulator Card */
   .simulator-card {
-    background: #131b2e;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--surface-card);
+    border: 1px solid var(--border-subtle);
     border-radius: 16px;
     padding: 16px;
   }
 
   .sim-badge {
-    background: #0284c7;
+    background: var(--primary-color);
     color: #ffffff;
     font-size: 10px;
     font-weight: 700;
@@ -1041,7 +1167,7 @@
   .sim-desc {
     margin: 0 0 12px 0;
     font-size: 12px;
-    color: #94a3b8;
+    color: var(--text-secondary);
   }
 
   .sim-grid {
@@ -1051,9 +1177,9 @@
   }
 
   .btn-mock {
-    background: #1e293b;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: #e2e8f0;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
     font-size: 12px;
     font-weight: 600;
     padding: 9px 8px;
@@ -1063,9 +1189,8 @@
   }
 
   .btn-mock:hover {
-    background: #334155;
-    color: #ffffff;
-    border-color: #38bdf8;
+    background: var(--surface-card-hover);
+    border-color: var(--brand-icon-color);
   }
 
   /* History Block */
@@ -1088,8 +1213,9 @@
   }
 
   .count-badge {
-    background: #1e293b;
-    color: #94a3b8;
+    background: var(--surface-card);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
     font-size: 11px;
     font-weight: 600;
     padding: 1px 7px;
@@ -1099,7 +1225,7 @@
   .btn-text-danger {
     background: transparent;
     border: none;
-    color: #f87171;
+    color: #ef4444;
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
@@ -1112,8 +1238,8 @@
   }
 
   .empty-tray {
-    background: #131b2e;
-    border: 1px dashed rgba(255, 255, 255, 0.12);
+    background: var(--surface-card);
+    border: 1px dashed var(--border-subtle);
     border-radius: 16px;
     padding: 36px 20px;
     text-align: center;
@@ -1124,19 +1250,19 @@
   }
 
   .empty-icon {
-    color: #475569;
+    color: var(--text-muted);
     margin-bottom: 4px;
   }
 
   .empty-title {
     font-size: 14px;
     font-weight: 600;
-    color: #cbd5e1;
+    color: var(--text-primary);
   }
 
   .empty-subtitle {
     font-size: 12px;
-    color: #64748b;
+    color: var(--text-muted);
     max-width: 260px;
     line-height: 1.4;
   }
@@ -1148,8 +1274,8 @@
   }
 
   .history-row {
-    background: #131b2e;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--surface-card);
+    border: 1px solid var(--border-subtle);
     border-radius: 12px;
     padding: 13px 16px;
     display: flex;
@@ -1160,8 +1286,8 @@
   }
 
   .history-row:hover {
-    background: #1e293b;
-    border-color: rgba(255, 255, 255, 0.12);
+    background: var(--surface-card-hover);
+    border-color: var(--border-hover);
   }
 
   .history-row-main {
@@ -1173,24 +1299,24 @@
   .history-card-type {
     font-size: 13px;
     font-weight: 600;
-    color: #f8fafc;
+    color: var(--text-primary);
   }
 
   .history-card-pan {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 11px;
-    color: #94a3b8;
+    color: var(--text-secondary);
   }
 
   .history-card-time {
     font-size: 10px;
-    color: #64748b;
+    color: var(--text-muted);
   }
 
   .history-amount {
     font-size: 15px;
     font-weight: 700;
-    color: #34d399;
+    color: #10b981;
     font-variant-numeric: tabular-nums;
   }
 
@@ -1198,7 +1324,7 @@
   .modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.75);
+    background: var(--modal-backdrop-bg);
     backdrop-filter: blur(4px);
     display: flex;
     align-items: flex-end;
@@ -1207,8 +1333,8 @@
   }
 
   .modal-sheet {
-    background: #0f172a;
-    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    background: var(--surface-sheet);
+    border-top: 1px solid var(--border-subtle);
     border-radius: 20px 20px 0 0;
     width: 100%;
     max-width: 480px;
@@ -1216,6 +1342,7 @@
     display: flex;
     flex-direction: column;
     gap: 20px;
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.2);
   }
 
   .modal-sheet-header {
@@ -1228,13 +1355,54 @@
     margin: 0;
     font-size: 17px;
     font-weight: 700;
-    color: #f8fafc;
+    color: var(--text-primary);
   }
 
   .settings-items {
     display: flex;
     flex-direction: column;
     gap: 16px;
+  }
+
+  /* Theme Segmented Control */
+  .setting-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .theme-segmented-control {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    background: var(--surface-card);
+    border: 1px solid var(--border-subtle);
+    padding: 4px;
+    border-radius: 10px;
+    gap: 4px;
+  }
+
+  .theme-segment {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .theme-segment--active {
+    background: var(--primary-color);
+    color: #ffffff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
   }
 
   .setting-row {
@@ -1247,25 +1415,25 @@
   .setting-title {
     font-size: 14px;
     font-weight: 600;
-    color: #e2e8f0;
+    color: var(--text-primary);
   }
 
   .setting-description {
     font-size: 12px;
-    color: #94a3b8;
+    color: var(--text-secondary);
     margin-top: 2px;
   }
 
   .ios-switch {
     width: 22px;
     height: 22px;
-    accent-color: #38bdf8;
+    accent-color: var(--primary-color);
     cursor: pointer;
   }
 
   .btn-primary {
     width: 100%;
-    background: #0284c7;
+    background: var(--primary-color);
     color: #ffffff;
     border: none;
     font-size: 14px;
@@ -1277,7 +1445,7 @@
   }
 
   .btn-primary:hover {
-    background: #0369a1;
+    background: var(--primary-hover);
   }
 
   /* Toast Notification */
@@ -1286,14 +1454,14 @@
     bottom: 24px;
     left: 50%;
     transform: translateX(-50%);
-    background: #1e293b;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    color: #f8fafc;
+    background: var(--toast-bg);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
     font-size: 13px;
     font-weight: 500;
     padding: 10px 18px;
     border-radius: 9999px;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
     z-index: 2000;
   }
 </style>
