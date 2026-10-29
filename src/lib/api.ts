@@ -1,8 +1,7 @@
 import type { BackendCardDefinition, CardBalanceResult } from './types';
 
-// Default to localhost for development
-// ponytail: hardcoded development base URL; use import.meta.env.VITE_API_URL when environment variables are configured
-const API_BASE_URL = 'http://localhost:3000';
+// API base URL configured via VITE_API_URL, fallback to localhost for development
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/+$/, '');
 
 export async function fetchCardDefinitions(): Promise<BackendCardDefinition[]> {
   try {

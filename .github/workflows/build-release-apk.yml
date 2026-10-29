@@ -25,6 +25,9 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  VITE_API_URL: ${{ secrets.VITE_API_URL || vars.VITE_API_URL || 'http://localhost:3000' }}
+
 jobs:
   quality-gate:
     name: Quality Gate & Typecheck
