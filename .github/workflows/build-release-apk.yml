@@ -17,7 +17,7 @@ on:
       publish_release:
         description: 'Publish GitHub Release'
         required: true
-        default: false
+        default: true
         type: boolean
 
 permissions:
@@ -150,7 +150,7 @@ jobs:
           retention-days: 14
 
       - name: Publish GitHub Release
-        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+        if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version_name) }}
@@ -158,22 +158,19 @@ jobs:
           body: |
             ## TapMoney v${{ steps.version.outputs.version_name }}
 
-            Native Android release built with Kotlin and Jetpack Compose.
+            Rilis resmi aplikasi TapMoney Info untuk Android.
 
-            ### Changes
-            - Removed fabricated card-number and unknown-card fallback results.
-            - Corrected ISO-DEP status handling and issuer command routing.
-            - Fixed Mandiri record addressing and expanded chip-history reads.
-            - Added local persistence for saved cards and chip transactions.
-            - Added sound, haptics, masking, auto-save, tap-to-copy, and richer receipts.
-            - Release APK now uses deterministic versioned naming.
+            ### Ringkasan Rilis
+            * Penyelarasan versioning dinamis sesuai metadata build v${{ steps.version.outputs.version_name }} (Build Code: ${{ steps.version.outputs.version_code }}).
+            * Pemindaian kartu uang elektronik NFC (Mandiri e-Money, BCA Flazz, BRI Brizzi, BNI TapCash, KMT Commuter Line, MegaCash).
+            * Deteksi status koneksi dan adapter NFC secara langsung.
+            * Dukungan tema tampilan Sistem, Terang, dan Gelap.
+            * Penyimpanan riwayat pemindaian lokal mandiri.
 
-            ### Build
-            - Version code: `${{ steps.version.outputs.version_code }}`
-            - APK: `TapMoney-v${{ steps.version.outputs.version_name }}.apk`
-            - Source ref: `${{ github.ref_name }}`
-
-            Physical NFC-card validation remains required for issuer-specific runtime confirmation.
+            ### Informasi Berkas
+            * Nama berkas: `TapMoney-v${{ steps.version.outputs.version_name }}.apk`
+            * Kode versi: `${{ steps.version.outputs.version_code }}`
+            * Commit SHA: `${{ github.sha }}`
           files: TapMoney-v${{ steps.version.outputs.version_name }}.apk
           draft: false
           prerelease: false
