@@ -54,13 +54,23 @@ export async function readBrizziHistory(): Promise<CardTransactionItem[]> {
   }
 }
 
-export async function readFlazzHistory(): Promise<CardTransactionItem[]> {
+export async function readFlazzHistory(isGen2 = false): Promise<CardTransactionItem[]> {
   try {
     const records: number[][] = [];
-    for (let offset = 0; offset < 16; offset++) {
-      const response = await send([0x00, 0xb0, 0x00, offset * 15, 0x0f]);
-      if (!response.isSuccess) break;
-      records.push(response.data);
+    if (!isGen2) {
+      for (let offset = 0; offset < 16; offset++) {
+        const response = await send([0x00, 0xb0, 0x00, offset * 15, 0x0f]);
+        if (!response.isSuccess) break;
+        records.push(response.data);
+      }
+    }
+    if (records.length === 0) {
+      // Flazz Gen 2 history command: 90 32 03 00 01 <index> 20
+      for (let i = 0; i < 10; i++) {
+        const response = await send([0x90, 0x32, 0x03, 0x00, 0x01, i, 0x20]);
+        if (!response.isSuccess) break;
+        records.push(response.data);
+      }
     }
     return parseFlazzHistory(records);
   } catch {

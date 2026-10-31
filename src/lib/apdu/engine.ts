@@ -23,11 +23,14 @@ const APDU_SELECT_EMONEY = [0x00, 0xa4, 0x04, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00
 const APDU_EMONEY_NUMBER = [0x00, 0xb3, 0x00, 0x00, 0x3f];
 const APDU_EMONEY_BALANCE = [0x00, 0xb5, 0x00, 0x00, 0x0a];
 
-// BCA Flazz DF (Gen 1 & Gen 2)
+// BCA Flazz DF (Gen 1 & Gen 2) & PBOC Commands
 const APDU_SELECT_FLAZZ_GEN1 = [0x00, 0xa4, 0x04, 0x00, 0x0b, 0xa0, 0x00, 0x00, 0x00, 0x18, 0x0f, 0x00, 0x00, 0x01, 0x80, 0x01];
 const APDU_SELECT_FLAZZ_GEN2 = [0x00, 0xa4, 0x04, 0x00, 0x07, 0xd2, 0x76, 0x00, 0x00, 0x85, 0x01, 0x01];
-const APDU_FLAZZ_READ_REC = [0x00, 0xb2, 0x01, 0x0c, 0x00];
-const APDU_FLAZZ_BALANCE = [0x00, 0xb0, 0x00, 0x00, 0x04];
+const APDU_FLAZZ_GPO = [0x80, 0xa8, 0x00, 0x00, 0x02, 0x83, 0x00, 0x00];
+const APDU_FLAZZ_READ_REC_1 = [0x00, 0xb2, 0x01, 0x0c, 0x00];
+const APDU_FLAZZ_READ_REC_2 = [0x00, 0xb2, 0x01, 0x14, 0x00];
+const APDU_FLAZZ_READ_REC_3 = [0x00, 0xb2, 0x02, 0x0c, 0x00];
+const APDU_FLAZZ_BALANCE = [0x80, 0x5c, 0x00, 0x02, 0x04];
 
 // BRI Brizzi DESFire Select App & Read commands
 const APDU_SELECT_BRIZZI = [0x90, 0x5a, 0x00, 0x00, 0x03, 0x01, 0x00, 0x00, 0x00];
@@ -111,38 +114,73 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
       }
 
       // --- Probing Step 2: BCA Flazz ---
+      let isGen2 = false;
       let respFlazz = await transceiveApdu(APDU_SELECT_FLAZZ_GEN1);
       if (!respFlazz || !parseApduResponse(respFlazz).isSuccess) {
         respFlazz = await transceiveApdu(APDU_SELECT_FLAZZ_GEN2);
+        if (respFlazz && parseApduResponse(respFlazz).isSuccess) {
+          isGen2 = true;
+        }
       }
       if (respFlazz && parseApduResponse(respFlazz).isSuccess) {
         let realCardNumber: string | undefined;
         let liveBalance: number | undefined;
 
-        // Try reading Track 2 record for real PAN
-        const recResp = await transceiveApdu(APDU_FLAZZ_READ_REC);
-        if (recResp && recResp.length > 2) {
-          const ascii = String.fromCharCode(...recResp.filter(b => b >= 32 && b <= 126));
-          const semiIdx = ascii.indexOf(';');
-          const eqIdx = ascii.indexOf('=');
-          if (semiIdx !== -1 && eqIdx !== -1 && eqIdx > semiIdx) {
-            realCardNumber = ascii.substring(semiIdx + 1, eqIdx);
+        // PBOC GPO required before reading records
+        await transceiveApdu(APDU_FLAZZ_GPO);
+
+        // Try reading Track 2 record for real 16-digit PAN across standard record indices
+        const recordCommands = [APDU_FLAZZ_READ_REC_1, APDU_FLAZZ_READ_REC_2, APDU_FLAZZ_READ_REC_3];
+        for (const cmd of recordCommands) {
+          const recResp = await transceiveApdu(cmd);
+          if (recResp && recResp.length > 2) {
+            // Check ASCII: ;PAN=
+            const ascii = String.fromCharCode(...recResp.filter(b => b >= 32 && b <= 126));
+            const semiIdx = ascii.indexOf(';');
+            const eqIdx = ascii.indexOf('=');
+            if (semiIdx !== -1 && eqIdx !== -1 && eqIdx > semiIdx) {
+              const panCandidate = ascii.substring(semiIdx + 1, eqIdx).replace(/\D/g, '');
+              if (panCandidate.length >= 16) {
+                realCardNumber = panCandidate.slice(0, 16);
+                break;
+              }
+            }
+            // Check BCD/HEX Track 2 equivalent data: 'D' separator
+            const hexStr = bytesToHex(recResp);
+            const dIdx = hexStr.indexOf('D');
+            if (dIdx >= 16) {
+              const panCandidate = hexStr.substring(dIdx - 16, dIdx);
+              if (/^\d{16}$/.test(panCandidate)) {
+                realCardNumber = panCandidate;
+                break;
+              }
+            }
           }
         }
 
-        // Try reading balance
+        // Standard PBOC Get Balance: 80 5C 00 02 04
         const balResp = await transceiveApdu(APDU_FLAZZ_BALANCE);
         if (balResp && balResp.length >= 4) {
           const balParsed = parseApduResponse(balResp);
-          if (balParsed.data.length >= 3) {
-            // 24-bit big endian integer
-            liveBalance = ((balParsed.data[0] << 16) | (balParsed.data[1] << 8) | balParsed.data[2]) >>> 0;
+          if (balParsed.data.length >= 4) {
+            liveBalance = (
+              ((balParsed.data[0] & 0xff) << 24) |
+              ((balParsed.data[1] & 0xff) << 16) |
+              ((balParsed.data[2] & 0xff) << 8) |
+              (balParsed.data[3] & 0xff)
+            ) >>> 0;
+          } else if (balParsed.data.length >= 3) {
+            liveBalance = (
+              ((balParsed.data[0] & 0xff) << 16) |
+              ((balParsed.data[1] & 0xff) << 8) |
+              (balParsed.data[2] & 0xff)
+            ) >>> 0;
           }
         }
 
         const card = parseFlazzPayload(balResp ? parseApduResponse(balResp).data : [], uidHex, realCardNumber, liveBalance);
         try {
-          card.history = await readFlazzHistory();
+          card.history = await readFlazzHistory(isGen2);
         } catch {
           card.history = [];
         }
