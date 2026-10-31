@@ -26,10 +26,10 @@ const APDU_EMONEY_BALANCE = [0x00, 0xb5, 0x00, 0x00, 0x0a];
 // BCA Flazz DF (Gen 1 & Gen 2) & PBOC Commands
 const APDU_SELECT_FLAZZ_GEN1 = [0x00, 0xa4, 0x04, 0x00, 0x0b, 0xa0, 0x00, 0x00, 0x00, 0x18, 0x0f, 0x00, 0x00, 0x01, 0x80, 0x01];
 const APDU_SELECT_FLAZZ_GEN2 = [0x00, 0xa4, 0x04, 0x00, 0x07, 0xd2, 0x76, 0x00, 0x00, 0x85, 0x01, 0x01];
-const APDU_FLAZZ_GPO = [0x80, 0xa8, 0x00, 0x00, 0x02, 0x83, 0x00, 0x00];
 const APDU_FLAZZ_READ_REC_1 = [0x00, 0xb2, 0x01, 0x0c, 0x00];
 const APDU_FLAZZ_READ_REC_2 = [0x00, 0xb2, 0x01, 0x14, 0x00];
 const APDU_FLAZZ_READ_REC_3 = [0x00, 0xb2, 0x02, 0x0c, 0x00];
+const APDU_FLAZZ_READ_BIN = [0x00, 0xb0, 0x00, 0x00, 0x00];
 const APDU_FLAZZ_BALANCE = [0x80, 0x5c, 0x00, 0x02, 0x04];
 
 // BRI Brizzi DESFire Select App & Read commands
@@ -92,11 +92,14 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
       // --- Probing Step 1: Mandiri e-Money ---
       const respEmoney = await transceiveApdu(APDU_SELECT_EMONEY);
       if (respEmoney && parseApduResponse(respEmoney).isSuccess) {
-        // Read real card number from chip record
+        let isNewCard = false;
         let realCardNumber: string | undefined;
         const respNum = await transceiveApdu(APDU_EMONEY_NUMBER);
         if (respNum && respNum.length >= 8) {
           realCardNumber = bytesToHex(respNum.slice(0, 8));
+          if (respNum.length >= 20 && (respNum[18] & 0xff) === 0x83) {
+            isNewCard = true;
+          }
         }
 
         // Read live balance
@@ -105,7 +108,7 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
           const balanceParsed = parseApduResponse(balanceResp);
           const card = parseEmoneyPayload(balanceParsed.data, uidHex, realCardNumber);
           try {
-            card.history = await readEmoneyHistory();
+            card.history = await readEmoneyHistory(isNewCard);
           } catch {
             card.history = [];
           }
@@ -126,11 +129,8 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
         let realCardNumber: string | undefined;
         let liveBalance: number | undefined;
 
-        // PBOC GPO required before reading records
-        await transceiveApdu(APDU_FLAZZ_GPO);
-
-        // Try reading Track 2 record for real 16-digit PAN across standard record indices
-        const recordCommands = [APDU_FLAZZ_READ_REC_1, APDU_FLAZZ_READ_REC_2, APDU_FLAZZ_READ_REC_3];
+        // Try reading Track 2 record for real 16-digit PAN across standard record indices (no GPO)
+        const recordCommands = [APDU_FLAZZ_READ_REC_1, APDU_FLAZZ_READ_REC_2, APDU_FLAZZ_READ_REC_3, APDU_FLAZZ_READ_BIN];
         for (const cmd of recordCommands) {
           const recResp = await transceiveApdu(cmd);
           if (recResp && recResp.length > 2) {
@@ -158,18 +158,17 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
           }
         }
 
-        // Standard PBOC Get Balance: 80 5C 00 02 04
+        // Standard PBOC Get Balance: 80 5C 00 02 04 (3-byte Big Endian integer at resp[1..3])
         const balResp = await transceiveApdu(APDU_FLAZZ_BALANCE);
         if (balResp && balResp.length >= 4) {
           const balParsed = parseApduResponse(balResp);
-          if (balParsed.data.length >= 4) {
+          if (balParsed.isSuccess && balParsed.data.length >= 4) {
             liveBalance = (
-              ((balParsed.data[0] & 0xff) << 24) |
               ((balParsed.data[1] & 0xff) << 16) |
               ((balParsed.data[2] & 0xff) << 8) |
               (balParsed.data[3] & 0xff)
             ) >>> 0;
-          } else if (balParsed.data.length >= 3) {
+          } else if (balParsed.isSuccess && balParsed.data.length >= 3) {
             liveBalance = (
               ((balParsed.data[0] & 0xff) << 16) |
               ((balParsed.data[1] & 0xff) << 8) |
@@ -229,9 +228,10 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
             balance = (balance | 0xff000000) >>> 0;
           }
           const realCardNumber = bytesToHex(readResp.slice(8, 16));
+          const totalRecords = readResp.length >= 41 ? readResp[40] : undefined;
           const card = parseTapcashPayload([], uidHex, realCardNumber, balance);
           try {
-            card.history = await readTapcashHistory();
+            card.history = await readTapcashHistory(totalRecords);
           } catch {
             card.history = [];
           }
