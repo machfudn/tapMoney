@@ -95,35 +95,14 @@ fun MainScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .background(NeoColors.Yellow, RoundedCornerShape(4.dp))
-                                .border(1.5.dp, borderColor, RoundedCornerShape(4.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "TAPMONEY",
-                                color = Color.Black,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                        Text(
-                            text = "INFO",
-                            color = textColor,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                    Text(
-                        text = "Pemeriksa Saldo Uang Elektronik",
-                        color = textSubtleColor,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+                Image(
+                    painter = painterResource(id = R.mipmap.ic_launcher),
+                    contentDescription = "TapMoney Logo",
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.5.dp, borderColor, RoundedCornerShape(8.dp))
+                )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (currentCard != null) {
