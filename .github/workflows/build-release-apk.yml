@@ -1,169 +1,91 @@
-name: Build & Sign Release APK
+name: Android CI & Release
 
 on:
   push:
-    branches: [main]
+    branches: [ master, main ]
     tags:
       - 'v*'
   pull_request:
-    branches: [main]
+    branches: [ master, main ]
   workflow_dispatch:
     inputs:
       version:
-        description: 'Target Version (SemVer: MAJOR.MINOR.PATCH e.g. 1.1.1). Leave empty to use git tag or package.json.'
+        description: 'Version Name (misal: 1.1.0)'
         required: false
         default: ''
-        type: string
-      build_type:
-        description: 'Build Type (release or debug)'
-        required: true
-        default: 'release'
-        type: choice
-        options:
-          - release
-          - debug
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: write
 
-env:
-  VITE_API_URL: ${{ secrets.VITE_API_URL || vars.VITE_API_URL }}
-
 jobs:
-  quality-gate:
-    name: Quality Gate & Typecheck
+  build:
+    name: Build & Sign APK (Kotlin / Jetpack Compose)
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: 'npm'
+          fetch-depth: 0
 
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Svelte & TypeScript Check
-        run: npm run check
-
-      - name: Vite Web Build
-        run: npm run build
-
-  build-apk:
-    name: Build & Sign Android APK
-    needs: quality-gate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Java 21
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Accept Android SDK Licenses
-        run: yes | sdkmanager --licenses || true
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'npm'
-
-      # Menggunakan Setup Gradle resmi untuk performa & cache yang lebih baik
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v4
 
-      - name: Install NPM Dependencies
-        run: npm ci
-
-      - name: Build Web Dist
-        run: npm run build
-
-      - name: Sync Capacitor Android
-        run: npx cap sync android
-
-      - name: Make Gradlew Executable
-        run: chmod +x android/gradlew
-
-      - name: Resolve Dynamic Version
-        id: semver
+      - name: Determine Version Name & Code
+        id: versioning
         run: |
-          RAW_VERSION=""
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            RAW_VERSION="${{ github.event.inputs.version }}"
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            RAW_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            RAW_TAG="${{ github.ref_name }}"
+            VERSION_NAME="${RAW_TAG#v}"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION_NAME="${{ github.event.inputs.version }}"
+          elif [[ -f "tap-money-info/android/version.properties" ]]; then
+            VERSION_NAME=$(grep '^versionName=' tap-money-info/android/version.properties | cut -d'=' -f2 | tr -d '\r')
           else
-            RAW_VERSION=$(node -p "require('./package.json').version || '1.0.0'")
+            VERSION_NAME="1.0.0"
           fi
 
-          CLEAN_VERSION=$(echo "$RAW_VERSION" | sed 's/^v//')
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CLEAN_VERSION"
-          MAJOR=${MAJOR:-1}
-          MINOR=${MINOR:-0}
-          PATCH=${PATCH:-0}
-          PATCH_NUM=$(echo "$PATCH" | grep -o '^[0-9]\+' || echo "0")
-
-          VERSION_CODE=$(( (MAJOR * 10000) + (MINOR * 100) + PATCH_NUM ))
-          VERSION_NAME="$CLEAN_VERSION"
-          APK_NAME="TapMoney-v${VERSION_NAME}.apk"
+          if [[ -f "tap-money-info/android/version.properties" ]] && [[ "${{ github.ref_type }}" != "tag" ]] && [[ -z "${{ github.event.inputs.version }}" ]]; then
+            VERSION_CODE=$(grep '^versionCode=' tap-money-info/android/version.properties | cut -d'=' -f2 | tr -d '\r')
+          else
+            IFS='.' read -r -a PARTS <<< "$VERSION_NAME"
+            MAJOR=${PARTS[0]:-1}
+            MINOR=${PARTS[1]:-0}
+            PATCH=${PARTS[2]:-0}
+            VERSION_CODE=$(( (MAJOR * 10000) + (MINOR * 100) + PATCH ))
+          fi
 
           echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
           echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
-          echo "APK_NAME=$APK_NAME" >> $GITHUB_ENV
+          echo "version=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "code=$VERSION_CODE" >> $GITHUB_OUTPUT
 
-          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
-          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
-          echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
+          echo "Version Name : $VERSION_NAME"
+          echo "Version Code : $VERSION_CODE"
 
-          echo "Dynamic Version: $VERSION_NAME (Code: $VERSION_CODE) -> $APK_NAME"
-
-      - name: Build Android Release APK
+      - name: Build Release APK with Gradle
         run: |
-          cd android
-          ./gradlew assembleRelease -PversionName="$VERSION_NAME" -PversionCode=$VERSION_CODE --no-daemon --stacktrace
+          cd tap-money-info/android
+          chmod +x gradlew
+          ./gradlew assembleRelease -PversionName="$VERSION_NAME" -PversionCode=$VERSION_CODE --no-daemon
 
-      - name: Sign APK (apksigner)
-        id: sign_apk
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      - name: Prepare Keystore for Signing
+        id: keystore
         run: |
-          BUILD_TOOLS_DIR=$(find $ANDROID_HOME/build-tools -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
-          APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
-          ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
-
-          UNSIGNED_APK="android/app/build/outputs/apk/release/app-release-unsigned.apk"
-          ALIGNED_APK="android/app/build/outputs/apk/release/app-release-aligned.apk"
-          FINAL_APK="$APK_NAME"
-
-          if [ ! -f "$UNSIGNED_APK" ]; then
-            UNSIGNED_APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          fi
-
-          echo "Aligning APK..."
-          "$ZIPALIGN" -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
-
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "Using repository secret KEYSTORE_BASE64..."
-            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
-            KEY_ALIAS_TO_USE="${KEY_ALIAS:-tapmoney}"
-            STORE_PASS="${KEYSTORE_PASSWORD:-Gilang#12}"
-            KEY_PASS="${KEY_PASSWORD:-Gilang#12}"
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Menggunakan Keystore dari Repository Secrets..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+            echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
           else
-            echo "KEYSTORE_BASE64 not configured in secrets. Generating temporary self-signed CI key..."
+            echo "KEYSTORE_BASE64 tidak ditemukan. Membuat keystore temporary untuk rilis..."
             keytool -genkeypair -v \
               -keystore release.keystore \
               -alias tapmoney \
@@ -172,79 +94,53 @@ jobs:
               -validity 10000 \
               -storepass "Gilang#12" \
               -keypass "Gilang#12" \
-              -dname "CN=TapMoney Info, OU=Mobile Dev, O=TapMoney, L=Jakarta, ST=DKI Jakarta, C=ID"
-            KEY_ALIAS_TO_USE="tapmoney"
-            STORE_PASS="Gilang#12"
-            KEY_PASS="Gilang#12"
+              -dname "CN=TapMoney, OU=Mobile Dev, O=Machfudin, L=Jakarta, ST=DKI Jakarta, C=ID"
+            echo "KEY_ALIAS=tapmoney" >> $GITHUB_ENV
+            echo "KEYSTORE_PASSWORD=Gilang#12" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=Gilang#12" >> $GITHUB_ENV
           fi
 
-          echo "Signing APK with apksigner (V1, V2, V3)..."
-          "$APKSIGNER" sign \
+      - name: Align & Sign APK (V1 + V2 + V3)
+        run: |
+          UNSIGNED_APK=$(find tap-money-info/android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$UNSIGNED_APK" ]; then
+            echo "APK tidak ditemukan di folder build output!"
+            exit 1
+          fi
+
+          BUILD_TOOLS=$(find $ANDROID_HOME/build-tools -mindepth 1 -maxdepth 1 | sort -V | tail -n 1)
+          echo "Menggunakan Android Build Tools: $BUILD_TOOLS"
+
+          $BUILD_TOOLS/zipalign -v -p 4 "$UNSIGNED_APK" aligned.apk
+
+          $BUILD_TOOLS/apksigner sign \
             --ks release.keystore \
-            --ks-key-alias "$KEY_ALIAS_TO_USE" \
-            --ks-pass pass:"$STORE_PASS" \
-            --key-pass pass:"$KEY_PASS" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass pass:"$KEYSTORE_PASSWORD" \
+            --key-pass pass:"$KEY_PASSWORD" \
             --v1-signing-enabled true \
             --v2-signing-enabled true \
             --v3-signing-enabled true \
-            --out "$FINAL_APK" \
-            "$ALIGNED_APK"
+            --out "TapMoney-v${VERSION_NAME}.apk" \
+            aligned.apk
 
-          echo "Verifying signed APK..."
-          "$APKSIGNER" verify --verbose "$FINAL_APK"
-
-          echo "Signed APK successfully created: $FINAL_APK"
-          ls -lh "$FINAL_APK"
+          $BUILD_TOOLS/apksigner verify --verbose "TapMoney-v${VERSION_NAME}.apk"
+          echo "APK Berhasil Ditandatangani: TapMoney-v${VERSION_NAME}.apk"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TapMoney-v${{ steps.semver.outputs.version_name }}
-          path: ${{ env.APK_NAME }}
+          name: TapMoney-v${{ env.VERSION_NAME }}
+          path: TapMoney-v${{ env.VERSION_NAME }}.apk
           if-no-files-found: error
-          retention-days: 30
 
-      - name: Generate Release Notes
-        run: |
-          SHA256_FINAL=$(sha256sum "$APK_NAME" | awk '{print $1}')
-          FILE_SIZE=$(ls -lh "$APK_NAME" | awk '{print $5}')
-
-          cat <<EOF > release_notes.md
-          ### Build Artifacts
-          * Binary: \`$APK_NAME\`
-          * File size: \`$FILE_SIZE\`
-          * SHA-256: \`$SHA256_FINAL\`
-
-          ### Verification
-          \`\`\`bash
-          echo "$SHA256_FINAL  $APK_NAME" | sha256sum -c
-          \`\`\`
-
-          ### Build Details
-          * Commit: \`${{ github.sha }}\`
-          * Branch: \`${{ github.ref_name }}\`
-          * Signature: Verified with apksigner (V1, V2, V3 scheme)
-          EOF
-
-      - name: Publish GitHub Release (Tag)
+      - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.APK_NAME }}
-          body_path: release_notes.md
-          generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish Latest Release (Push to main)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: Latest Build (${{ env.VERSION_NAME }})
-          files: ${{ env.APK_NAME }}
-          body_path: release_notes.md
-          prerelease: true
-          generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: TapMoney-v${{ env.VERSION_NAME }}.apk
+          tag_name: ${{ github.ref_name }}
+          name: TapMoney v${{ env.VERSION_NAME }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
