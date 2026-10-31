@@ -180,7 +180,7 @@ Kompilasi varian release:
 
 Tandatangani file APK menggunakan `apksigner`:
 ```bash
-apksigner sign --ks release.keystore --ks-pass pass:YOUR_PASSWORD --out TapMoneyInfo.apk android/app/build/outputs/apk/release/app-release-unsigned.apk
+apksigner sign --ks release.keystore --ks-pass pass:YOUR_PASSWORD --out TapMoney-v${VERSION_NAME}.apk android/app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
 Verifikasi integritas tanda tangan:

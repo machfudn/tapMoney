@@ -176,7 +176,7 @@ Compile the release variant:
 
 Sign the output package using `apksigner`:
 ```bash
-apksigner sign --ks release.keystore --ks-pass pass:YOUR_PASSWORD --out TapMoneyInfo.apk android/app/build/outputs/apk/release/app-release-unsigned.apk
+apksigner sign --ks release.keystore --ks-pass pass:YOUR_PASSWORD --out TapMoney-v${VERSION_NAME}.apk android/app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
 Verify package integrity:

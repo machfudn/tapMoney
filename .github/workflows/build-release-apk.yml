@@ -2,28 +2,37 @@ name: Android CI & Release
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     tags:
       - 'v*'
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version Name (misal: 1.1.0)'
+        description: 'Version Name (SemVer, contoh: 1.1.2)'
         required: false
         default: ''
+        type: string
+      publish_release:
+        description: 'Publish GitHub Release'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
 
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    name: Build & Sign APK (Kotlin / Jetpack Compose)
+    name: Build, sign, verify APK
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -31,129 +40,142 @@ jobs:
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '21'
 
-      - name: Setup Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Determine Version Name & Code
-        id: versioning
+      - name: Resolve version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          PROP_FILE=""
-          if [[ -f "android/version.properties" ]]; then
-            PROP_FILE="android/version.properties"
-          elif [[ -f "tap-money-info/android/version.properties" ]]; then
-            PROP_FILE="tap-money-info/android/version.properties"
+          set -euo pipefail
+
+          prop_file="android/version.properties"
+          tag_version=""
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag_version="${GITHUB_REF_NAME#v}"
           fi
 
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            RAW_TAG="${{ github.ref_name }}"
-            VERSION_NAME="${RAW_TAG#v}"
-          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
-            VERSION_NAME="${{ github.event.inputs.version }}"
-          elif [[ -n "$PROP_FILE" ]]; then
-            VERSION_NAME=$(grep '^versionName=' "$PROP_FILE" | cut -d'=' -f2 | tr -d '\r')
-          else
-            VERSION_NAME="1.0.0"
+          version_name="${tag_version:-${INPUT_VERSION:-}}"
+          if [[ -z "$version_name" ]]; then
+            version_name="$(sed -n 's/^versionName=//p' "$prop_file" | tr -d '\r')"
           fi
+          version_code="$(sed -n 's/^versionCode=//p' "$prop_file" | tr -d '\r')"
 
-          if [[ -n "$PROP_FILE" ]] && [[ "${{ github.ref_type }}" != "tag" ]] && [[ -z "${{ github.event.inputs.version }}" ]]; then
-            VERSION_CODE=$(grep '^versionCode=' "$PROP_FILE" | cut -d'=' -f2 | tr -d '\r')
-          else
-            IFS='.' read -r -a PARTS <<< "$VERSION_NAME"
-            MAJOR=${PARTS[0]:-1}
-            MINOR=${PARTS[1]:-0}
-            PATCH=${PARTS[2]:-0}
-            VERSION_CODE=$(( (MAJOR * 10000) + (MINOR * 100) + PATCH ))
-          fi
-
-          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
-          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
-          echo "version=$VERSION_NAME" >> $GITHUB_OUTPUT
-          echo "code=$VERSION_CODE" >> $GITHUB_OUTPUT
-
-          echo "Version Name : $VERSION_NAME"
-          echo "Version Code : $VERSION_CODE"
-
-      - name: Build Release APK with Gradle
-        run: |
-          if [ -d "android" ]; then
-            cd android
-          elif [ -d "tap-money-info/android" ]; then
-            cd tap-money-info/android
-          else
-            echo "Direktori android tidak ditemukan!"
+          if [[ ! "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid versionName: $version_name" >&2
             exit 1
           fi
+          if [[ ! "$version_code" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Invalid versionCode: $version_code" >&2
+            exit 1
+          fi
+
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+          echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
+          echo "VERSION_NAME=$version_name" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$version_code" >> "$GITHUB_ENV"
+          echo "Resolved version: $version_name ($version_code)"
+
+      - name: Build unsigned release APK
+        working-directory: android
+        run: |
+          set -euo pipefail
           sed -i 's/\r$//' gradlew
           chmod +x gradlew
-          ./gradlew assembleRelease -PversionName="$VERSION_NAME" -PversionCode=$VERSION_CODE --no-daemon
+          ./gradlew clean assembleRelease \
+            -PversionName="$VERSION_NAME" \
+            -PversionCode="$VERSION_CODE" \
+            --no-daemon
 
-      - name: Prepare Keystore for Signing
-        id: keystore
+      - name: Prepare signing keystore
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_ALIAS_SECRET: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD_SECRET: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "Menggunakan Keystore dari Repository Secrets..."
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\r\n ' | base64 -d > release.keystore
-            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS || 'tapmoney' }}" >> $GITHUB_ENV
-            echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
-            KEY_PASS="${{ secrets.KEY_PASSWORD }}"
-            if [ -z "$KEY_PASS" ]; then
-              KEY_PASS="${{ secrets.KEYSTORE_PASSWORD }}"
-            fi
-            echo "KEY_PASSWORD=$KEY_PASS" >> $GITHUB_ENV
-          else
-            echo "KEYSTORE_BASE64 wajib diatur untuk build release."
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_BASE64" || -z "$KEYSTORE_PASSWORD" ]]; then
+            echo "KEYSTORE_BASE64 and KEYSTORE_PASSWORD are required." >&2
             exit 1
           fi
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > release.keystore
+          [[ -s release.keystore ]] || { echo "Decoded keystore is empty." >&2; exit 1; }
+          KEY_ALIAS="${KEY_ALIAS_SECRET:-tapmoney}"
+          KEY_PASSWORD="${KEY_PASSWORD_SECRET:-$KEYSTORE_PASSWORD}"
+          {
+            echo "KEY_ALIAS=$KEY_ALIAS"
+            echo "KEY_PASSWORD=$KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
 
-      - name: Align & Sign APK (V1 + V2 + V3)
+      - name: Align and sign APK
+        shell: bash
         run: |
-          UNSIGNED_APK=$(find . -type f -name "*release*.apk" ! -name "*aligned*" | head -n 1)
-          if [ -z "$UNSIGNED_APK" ]; then
-            echo "Daftar semua file apk yang ada:"
-            find . -type f -name "*.apk" || true
-            echo "APK release tidak ditemukan di folder build output!"
-            exit 1
-          fi
+          set -euo pipefail
+          build_tools="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          [[ -n "$build_tools" ]] || { echo "Android Build Tools not found." >&2; exit 1; }
 
-          echo "APK Ditemukan: $UNSIGNED_APK"
-          BUILD_TOOLS=$(find ${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools -mindepth 1 -maxdepth 1 | sort -V | tail -n 1)
-          echo "Menggunakan Android Build Tools: $BUILD_TOOLS"
+          unsigned_apk="android/app/build/outputs/apk/release/app-release-unsigned.apk"
+          [[ -f "$unsigned_apk" ]] || { echo "Missing $unsigned_apk" >&2; exit 1; }
+          aligned_apk="android/app/build/outputs/apk/release/app-release-aligned.apk"
+          output_apk="TapMoney-v${VERSION_NAME}.apk"
 
-          $BUILD_TOOLS/zipalign -f -v -p 4 "$UNSIGNED_APK" aligned.apk
-
-          $BUILD_TOOLS/apksigner sign \
+          "$build_tools/zipalign" -f -p 4 "$unsigned_apk" "$aligned_apk"
+          "$build_tools/apksigner" sign \
             --ks release.keystore \
             --ks-key-alias "$KEY_ALIAS" \
-            --ks-pass pass:"$KEYSTORE_PASSWORD" \
-            --key-pass pass:"$KEY_PASSWORD" \
+            --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASSWORD" \
             --v1-signing-enabled true \
             --v2-signing-enabled true \
             --v3-signing-enabled true \
-            --out "TapMoney-v${VERSION_NAME}.apk" \
-            aligned.apk
+            --out "$output_apk" \
+            "$aligned_apk"
+          "$build_tools/apksigner" verify --verbose "$output_apk"
+          echo "APK: $output_apk"
 
-          $BUILD_TOOLS/apksigner verify --verbose "TapMoney-v${VERSION_NAME}.apk"
-          echo "APK Berhasil Ditandatangani: TapMoney-v${VERSION_NAME}.apk"
-
-      - name: Upload APK Artifact
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TapMoney-v${{ env.VERSION_NAME }}
-          path: TapMoney-v${{ env.VERSION_NAME }}.apk
+          name: TapMoney-v${{ steps.version.outputs.version_name }}
+          path: TapMoney-v${{ steps.version.outputs.version_name }}.apk
           if-no-files-found: error
+          retention-days: 14
 
-      - name: Create or Update GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
         uses: softprops/action-gh-release@v2
         with:
-          files: TapMoney-v${{ env.VERSION_NAME }}.apk
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}', env.VERSION_NAME) }}
-          name: TapMoney v${{ env.VERSION_NAME }}
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version_name) }}
+          name: TapMoney v${{ steps.version.outputs.version_name }}
+          body: |
+            ## TapMoney v${{ steps.version.outputs.version_name }}
+
+            Native Android release built with Kotlin and Jetpack Compose.
+
+            ### Changes
+            - Removed fabricated card-number and unknown-card fallback results.
+            - Corrected ISO-DEP status handling and issuer command routing.
+            - Fixed Mandiri record addressing and expanded chip-history reads.
+            - Added local persistence for saved cards and chip transactions.
+            - Added sound, haptics, masking, auto-save, tap-to-copy, and richer receipts.
+            - Release APK now uses deterministic versioned naming.
+
+            ### Build
+            - Version code: `${{ steps.version.outputs.version_code }}`
+            - APK: `TapMoney-v${{ steps.version.outputs.version_name }}.apk`
+            - Source ref: `${{ github.ref_name }}`
+
+            Physical NFC-card validation remains required for issuer-specific runtime confirmation.
+          files: TapMoney-v${{ steps.version.outputs.version_name }}.apk
           draft: false
           prerelease: false
-          generate_release_notes: true
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
