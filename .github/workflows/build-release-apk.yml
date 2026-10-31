@@ -204,12 +204,35 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Generate Release Notes
+        run: |
+          SHA256_FINAL=$(sha256sum "$APK_NAME" | awk '{print $1}')
+          FILE_SIZE=$(ls -lh "$APK_NAME" | awk '{print $5}')
+
+          cat <<EOF > release_notes.md
+          ### Build Artifacts
+          * Binary: \`$APK_NAME\`
+          * File size: \`$FILE_SIZE\`
+          * SHA-256: \`$SHA256_FINAL\`
+
+          ### Verification
+          \`\`\`bash
+          echo "$SHA256_FINAL  $APK_NAME" | sha256sum -c
+          \`\`\`
+
+          ### Build Details
+          * Commit: \`${{ github.sha }}\`
+          * Branch: \`${{ github.ref_name }}\`
+          * Signature: Verified with apksigner (V1, V2, V3 scheme)
+          EOF
+
       - name: Publish GitHub Release (Tag)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.APK_NAME }}
-          generate_release_notes: true
+          body_path: release_notes.md
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -220,7 +243,8 @@ jobs:
           tag_name: latest
           name: Latest Build (${{ env.VERSION_NAME }})
           files: ${{ env.APK_NAME }}
+          body_path: release_notes.md
           prerelease: true
-          generate_release_notes: true
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
