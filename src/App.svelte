@@ -19,7 +19,10 @@
   import {
     saveTapRecord,
     getStoredHistory,
-    clearStoredHistory
+    getStoredCards,
+    deleteStoredCard,
+    clearAllStoredData,
+    type StoredCardRecord
   } from './lib/storage/db';
   import {
     loadSettings,
@@ -38,15 +41,18 @@
   } from './lib/receipt/receipt';
   import type { CardBalanceResult, BackendCardDefinition, CardIssuer } from './lib/types';
   import { getCardTheme } from './lib/cards/card-assets';
+  import CardVisual from './lib/cards/CardVisual.svelte';
 
   let nfcSupported = $state(false);
   let nfcEnabled = $state(false);
   let isScanning = $state(false);
   let currentCard = $state<CardBalanceResult | null>(null);
-  let activeTheme = $derived(currentCard ? getCardTheme(currentCard.issuer) : null);
-  let scanHistory = $state<CardBalanceResult[]>([]);
+  let activeTheme = $derived(currentCard ? getCardTheme(currentCard.issuer) : getCardTheme('Unknown'));
+  let savedCards = $state<StoredCardRecord[]>([]);
   let cardDefinitions = $state<BackendCardDefinition[]>([]);
   let statusMessage = $state('Tempelkan kartu di belakang ponsel');
+
+  let activeHistoryTab = $state<'chip' | 'saved'>('chip');
 
   let settings = $state<UserSettings>(loadSettings());
   let showSettingsModal = $state(false);
@@ -68,29 +74,23 @@
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
       toastMessage = null;
-    }, 2400);
+    }, 2800);
   }
 
-  async function handleCopyCardNumber(num: string) {
-    const raw = getRawCardNumber(num);
-    if (!raw || raw.includes('-')) return;
-    try {
-      await navigator.clipboard.writeText(raw);
-      if (settings.enableSound) playTapBeep();
-      if (settings.enableHaptics) triggerHaptics();
-      showToast('Nomor kartu disalin');
-    } catch {
-      showToast('Gagal menyalin nomor');
-    }
+  function handleCopyCardNumber(pan: string) {
+    const raw = getRawCardNumber(pan);
+    if (!raw) return;
+    navigator.clipboard?.writeText?.(raw);
+    showToast(`Nomor ${raw} disalin ke clipboard`);
   }
 
   async function handleShareReceipt() {
     if (!currentCard) return;
     const res = await shareOrCopyReceipt(currentCard, 'GT_CILILITAN_1');
-    if (res.method === 'clipboard') {
-      showToast('Struk disalin ke clipboard');
-    } else if (res.method === 'share' && res.success) {
-      showToast('Struk berhasil dibagikan');
+    if (res.success) {
+      showToast(res.method === 'share' ? 'Membuka menu share...' : 'Struk disalin ke clipboard');
+    } else {
+      showToast('Gagal membagikan struk');
     }
   }
 
@@ -121,7 +121,16 @@
     if (currentCard && currentCard.cardNumber === newCard.cardNumber) {
       prevCard = currentCard;
     } else {
-      prevCard = scanHistory.find(h => h.cardNumber === newCard.cardNumber) || null;
+      const match = savedCards.find(c => c.cardNumber === newCard.cardNumber);
+      if (match) {
+        prevCard = {
+          cardNumber: match.cardNumber,
+          cardType: match.cardType,
+          issuer: match.issuer as CardIssuer,
+          balance: match.balance ?? match.lastBalance ?? 0,
+          timestamp: match.timestamp
+        };
+      }
     }
 
     if (!prevCard) {
@@ -163,7 +172,7 @@
 
       if (settings.autoSaveHistory) {
         await saveTapRecord(card, 'GT_CILILITAN_1');
-        scanHistory = [card, ...scanHistory.slice(0, 19)];
+        savedCards = await getStoredCards();
         syncTapHistory(card, 'GT_CILILITAN_1');
       }
 
@@ -222,19 +231,14 @@
 
       await IsoDepNfc.startScanning();
       isScanning = true;
-      statusMessage = 'Tempelkan kartu di belakang ponsel';
+      statusMessage = 'Sensor siap. Tempelkan kartu uang elektronik.';
     } catch {
+      statusMessage = 'Gagal mengaktifkan sensor pemindaian';
       isScanning = false;
-      statusMessage = 'Gagal memulai pemindai NFC';
     }
   }
 
   async function stopScanner() {
-    if (!Capacitor.isNativePlatform()) {
-      isScanning = false;
-      return;
-    }
-
     try {
       if (tagDiscoveredListener) {
         await tagDiscoveredListener.remove();
@@ -331,7 +335,11 @@
       cardNumber: target.num,
       balance: cardBalance,
       lastAmount: 0,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      history: [
+        { type: 'Payment', amount: 15000, date: '2026-10-30', time: '14:22:10', balance: cardBalance },
+        { type: 'Top up', amount: 50000, date: '2026-10-28', time: '09:15:00', balance: cardBalance + 15000 }
+      ]
     };
 
     const { delta, type: changeType } = calculateBalanceDelta(card);
@@ -344,7 +352,7 @@
 
     if (settings.autoSaveHistory) {
       await saveTapRecord(card, 'GT_CILILITAN_1');
-      scanHistory = [card, ...scanHistory.slice(0, 19)];
+      savedCards = await getStoredCards();
       syncTapHistory(card, 'GT_CILILITAN_1');
     }
 
@@ -355,6 +363,7 @@
       showToast(`Saldo terpotong -${formatRupiah(delta)}`);
       statusMessage = `Terpotong: -${formatRupiah(delta)}`;
     } else {
+      showToast(`Simulasi sukses: ${card.cardType}`);
       statusMessage = `Simulasi sukses: ${card.cardType}`;
     }
   }
@@ -363,12 +372,37 @@
     (window as any).__simulateCardTap = simulateCardTap;
   }
 
-  async function handleClearHistory() {
-    await clearStoredHistory();
-    scanHistory = [];
+  function handleSelectSavedCard(item: StoredCardRecord) {
+    currentCard = {
+      cardNumber: item.cardNumber,
+      cardType: item.cardType,
+      issuer: (item.issuer as CardIssuer) || 'Unknown',
+      balance: item.balance ?? item.lastBalance ?? 0,
+      lastAmount: item.lastAmount ?? 0,
+      cardId: item.cardId,
+      history: item.history || [],
+      timestamp: item.timestamp || item.updatedAt || new Date().toISOString()
+    };
+    showToast(`Kartu ${item.cardType} dimuat ulang`);
+    statusMessage = `Kartu terpilih: ${item.cardType}`;
+  }
+
+  async function handleDeleteSavedCard(e: MouseEvent, cardNumber: string) {
+    e.stopPropagation();
+    await deleteStoredCard(cardNumber);
+    savedCards = await getStoredCards();
+    if (currentCard?.cardNumber === cardNumber) {
+      currentCard = null;
+    }
+    showToast('Kartu dihapus dari daftar tersimpan');
+  }
+
+  async function handleClearAllData() {
+    await clearAllStoredData();
+    savedCards = [];
     currentCard = null;
     statusMessage = 'Tempelkan kartu di belakang ponsel';
-    showToast('Riwayat dan kartu dibersihkan');
+    showToast('Semua data dan kartu tersimpan dibersihkan');
   }
 
   function handleClearCurrentCard() {
@@ -390,17 +424,9 @@
     }
 
     try {
-      const stored = await getStoredHistory(20);
-      scanHistory = stored.map(s => ({
-        cardType: s.cardType,
-        issuer: s.issuer as CardIssuer,
-        cardNumber: s.cardNumber,
-        balance: s.balance,
-        lastAmount: s.lastAmount,
-        timestamp: s.timestamp
-      }));
+      savedCards = await getStoredCards();
     } catch {
-      scanHistory = [];
+      savedCards = [];
     }
 
     await initNfc();
@@ -420,202 +446,84 @@
 </script>
 
 <main class="shell">
-  <header class="app-header">
-    <div class="header-inner">
-      <div class="brand">
-        <div class="brand-badge">
-          <svg viewBox="0 0 24 24" class="brand-icon" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-          </svg>
-        </div>
-        <div>
-          <h1 class="brand-name">TapMoney Info</h1>
-          <p class="brand-caption">Pemeriksa Saldo Uang Elektronik</p>
-        </div>
+  <!-- Neobrutalist Header -->
+  <header class="neo-header">
+    <div class="brand-group">
+      <div class="brand-box">
+        <svg viewBox="0 0 24 24" class="brand-icon" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+        </svg>
       </div>
-
-      <div class="header-actions">
-        <span class="status-pill {nfcEnabled ? 'status-pill--active' : 'status-pill--inactive'}">
-          <span class="status-dot"></span>
-          <span>{nfcEnabled ? 'NFC Aktif' : 'NFC Mati'}</span>
-        </span>
-
-        <button
-          class="btn-icon"
-          onclick={() => showSettingsModal = true}
-          title="Pengaturan"
-          aria-label="Pengaturan"
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-        </button>
+      <div>
+        <h1 class="brand-title">TapMoney Info</h1>
+        <p class="brand-sub">NFC Smart Card Reader</p>
       </div>
+    </div>
+
+    <div class="header-tools">
+      <span class="neo-status-pill {nfcEnabled ? 'status--active' : 'status--inactive'}">
+        <span class="status-indicator"></span>
+        <span>{nfcEnabled ? 'NFC AKTIF' : 'NFC MATI'}</span>
+      </span>
+
+      <button
+        class="neo-btn-icon"
+        onclick={() => showSettingsModal = true}
+        title="Pengaturan"
+        aria-label="Pengaturan"
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+      </button>
     </div>
   </header>
 
+  <!-- NFC Disabled Banner -->
   {#if !nfcEnabled && Capacitor.isNativePlatform()}
-    <aside class="nfc-alert-banner">
-      <div class="nfc-alert-body">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" class="nfc-alert-icon">
+    <aside class="neo-alert-box">
+      <div class="alert-content">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" class="alert-icon">
           <circle cx="12" cy="12" r="10" />
           <line x1="12" y1="8" x2="12" y2="12" />
           <line x1="12" y1="16" x2="12.01" y2="16" />
         </svg>
         <div>
-          <div class="nfc-alert-title">Sensor NFC Nonaktif</div>
-          <div class="nfc-alert-desc">Aktifkan NFC di pengaturan ponsel untuk mulai memindai kartu fisik.</div>
+          <div class="alert-title">SENSOR NFC NONAKTIF</div>
+          <div class="alert-desc">Aktifkan NFC di setelan perangkat untuk membaca kartu fisik.</div>
         </div>
       </div>
-      <button class="btn btn-nfc-activate" onclick={openNfcSettings}>
-        Aktifkan NFC
+      <button class="neo-btn neo-btn-danger" onclick={openNfcSettings}>
+        Buka Pengaturan NFC
       </button>
     </aside>
   {/if}
 
-  <section class="card-hero">
-    <div
-      class="card-surface {currentCard ? currentCard.issuer.toLowerCase() : 'card-surface--empty'}"
-      onclick={() => currentCard && handleCopyCardNumber(currentCard.cardNumber)}
-      role="button"
-      tabindex="0"
-      onkeydown={(e) => e.key === 'Enter' && currentCard && handleCopyCardNumber(currentCard.cardNumber)}
-      title={currentCard ? 'Ketuk untuk menyalin nomor kartu' : undefined}
-    >
-      {#if activeTheme?.bgImage}
-        <img
-          class="card-bg-art"
-          src={activeTheme.bgImage}
-          alt=""
-          aria-hidden="true"
-          loading="eager"
-        />
-      {/if}
-      <div class="card-gloss-sheen" aria-hidden="true"></div>
-
-      <div class="card-header-row">
-        <div class="card-brand-label">
-          {currentCard ? currentCard.cardType : 'UANG ELEKTRONIK'}
-        </div>
-        <div class="nfc-contactless-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-            <path d="M8.5 16.5a5 5 0 0 1 0-7" />
-            <path d="M12 19a8.5 8.5 0 0 1 0-14" />
-            <path d="M15.5 21.5a12 12 0 0 1 0-19" />
-          </svg>
-        </div>
-      </div>
-
-      <div class="card-body-row">
-        <div class="smart-chip" aria-hidden="true">
-          <div class="smart-chip-grid"></div>
-          <div class="smart-chip-core"></div>
-        </div>
-
-        <div class="card-balance-block">
-          <div class="card-balance-row">
-            <span class="card-balance-tag">Saldo Tersedia</span>
-            <button
-              type="button"
-              class="balance-eye-btn"
-              onclick={(e) => { e.stopPropagation(); updateSetting('hideBalance', !settings.hideBalance); }}
-              title={settings.hideBalance ? 'Tampilkan saldo' : 'Sembunyikan saldo'}
-              aria-label={settings.hideBalance ? 'Tampilkan saldo' : 'Sembunyikan saldo'}
-            >
-              {#if settings.hideBalance}
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                  <line x1="1" y1="1" x2="23" y2="23" />
-                </svg>
-              {:else}
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              {/if}
-            </button>
-          </div>
-          <div class="card-balance-amount">
-            {currentCard ? formatDisplayBalance(currentCard.balance, settings.hideBalance) : 'Rp 0'}
-          </div>
-        </div>
-      </div>
-
-      <div class="card-footer-row">
-        <div class="card-pan-wrapper">
-          <div class="card-pan-label-row">
-            <span class="card-pan-label">Nomor Kartu</span>
-            <button
-              type="button"
-              class="pan-eye-btn"
-              onclick={(e) => { e.stopPropagation(); updateSetting('maskCardNumber', !settings.maskCardNumber); }}
-              title={settings.maskCardNumber ? 'Buka sensor nomor' : 'Sensor nomor kartu'}
-              aria-label={settings.maskCardNumber ? 'Buka sensor nomor' : 'Sensor nomor kartu'}
-            >
-              {#if settings.maskCardNumber}
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                  <line x1="1" y1="1" x2="23" y2="23" />
-                </svg>
-              {:else}
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              {/if}
-            </button>
-          </div>
-          <span class="card-pan">
-            {currentCard ? formatDisplayCardNumber(currentCard.cardNumber, settings.maskCardNumber) : '•••• •••• •••• ••••'}
-          </span>
-        </div>
-        {#if currentCard}
-          <div class="card-time-wrapper">
-            <span class="card-time-label">Waktu Tap</span>
-            <span class="card-time">
-              {new Date(currentCard.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-            </span>
-          </div>
-        {/if}
-      </div>
-    </div>
+  <!-- Main Card Area -->
+  <section class="card-section">
+    <CardVisual
+      card={currentCard}
+      {activeTheme}
+      hideBalance={settings.hideBalance}
+      maskCardNumber={settings.maskCardNumber}
+      onToggleBalance={() => updateSetting('hideBalance', !settings.hideBalance)}
+      onToggleMask={() => updateSetting('maskCardNumber', !settings.maskCardNumber)}
+      onCopyCardNumber={handleCopyCardNumber}
+    />
 
     {#if currentCard}
-      {#if currentCard.history && currentCard.history.length > 0}
-        <div class="chip-history">
-          <div class="history-header">
-            <div class="history-title-group">
-              <h2 class="section-title">Riwayat Kartu</h2>
-              <span class="count-badge">{currentCard.history.length}</span>
-            </div>
-          </div>
-          <div class="history-stack">
-            {#each currentCard.history as transaction (`${transaction.date}-${transaction.time}-${transaction.amount}`)}
-              <div class="history-row">
-                <div class="history-row-main">
-                  <span class="history-card-type">{transaction.type}</span>
-                  <span class="history-card-pan">{formatTransactionDate(transaction.date)} {transaction.time}</span>
-                </div>
-                <div class="history-row-side">
-                  <span class="history-amount">{formatRupiah(transaction.amount)}</span>
-                </div>
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
-      <div class="action-grid">
-        <button class="action-btn" onclick={() => handleCopyCardNumber(currentCard!.cardNumber)}>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <div class="neo-action-grid">
+        <button class="neo-action-btn" onclick={() => handleCopyCardNumber(currentCard!.cardNumber)}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
           </svg>
           Salin No
         </button>
-        <button class="action-btn" onclick={handleShareReceipt}>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="neo-action-btn" onclick={handleShareReceipt}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="18" cy="5" r="3" />
             <circle cx="6" cy="12" r="3" />
             <circle cx="18" cy="19" r="3" />
@@ -624,16 +532,16 @@
           </svg>
           Bagikan
         </button>
-        <button class="action-btn" onclick={handlePrintReceipt}>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="neo-action-btn" onclick={handlePrintReceipt}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="6 9 6 2 18 2 18 9" />
             <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
             <rect x="6" y="14" width="12" height="8" />
           </svg>
           Cetak
         </button>
-        <button class="action-btn action-btn-danger" onclick={handleClearCurrentCard} title="Tutup kartu aktif">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="neo-action-btn btn-danger-action" onclick={handleClearCurrentCard} title="Tutup kartu aktif">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="3 6 5 6 21 6" />
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
           </svg>
@@ -642,90 +550,184 @@
       </div>
     {/if}
 
-    <div class="radar-box {isScanning ? 'radar-box--active' : ''}">
-      <div class="radar-pulse"></div>
-      <p class="radar-label">{statusMessage}</p>
+    <!-- Radar / Sensor box -->
+    <div class="neo-radar-box {isScanning ? 'neo-radar--active' : ''}">
+      <div class="radar-dot"></div>
+      <p class="radar-text">{statusMessage}</p>
     </div>
   </section>
 
+  <!-- Browser Simulator for Testing -->
   {#if !Capacitor.isNativePlatform()}
-    <section class="simulator-card">
-      <div class="section-heading">
-        <h2 class="section-title">Simulator Pengujian Browser</h2>
-        <span class="sim-badge">Dev Mode</span>
+    <section class="neo-card-box">
+      <div class="box-heading">
+        <h2 class="box-title">SIMULATOR UJI KARTU</h2>
+        <span class="neo-tag neo-tag--accent">DEV SIM</span>
       </div>
-      <p class="sim-desc">Pilih kartu untuk mensimulasikan tap tanpa perangkat fisik.</p>
-      <div class="sim-grid">
-        <button class="btn btn-mock" onclick={() => simulateCardTap('Mandiri')}>e-Money</button>
-        <button class="btn btn-mock" onclick={() => simulateCardTap('BCA')}>Flazz</button>
-        <button class="btn btn-mock btn-mock-topup" onclick={() => simulateCardTap('BCA', (currentCard?.issuer === 'BCA' ? currentCard.balance : 142000) + 100000)}>Flazz Top Up (+100k)</button>
-        <button class="btn btn-mock" onclick={() => simulateCardTap('BRI')}>Brizzi</button>
-        <button class="btn btn-mock" onclick={() => simulateCardTap('BNI')}>TapCash</button>
-        <button class="btn btn-mock" onclick={() => simulateCardTap('KCI')}>KMT</button>
-        <button class="btn btn-mock" onclick={() => simulateCardTap('Mega')}>MegaCash</button>
+      <p class="box-sub">Pilih salah satu kartu untuk mensimulasikan pembacaan NFC.</p>
+      <div class="neo-sim-grid">
+        <button class="neo-sim-btn" onclick={() => simulateCardTap('Mandiri')}>e-Money</button>
+        <button class="neo-sim-btn" onclick={() => simulateCardTap('BCA')}>Flazz</button>
+        <button class="neo-sim-btn neo-sim-btn--yellow" onclick={() => simulateCardTap('BCA', (currentCard?.issuer === 'BCA' ? currentCard.balance : 142000) + 100000)}>
+          Flazz +100k
+        </button>
+        <button class="neo-sim-btn" onclick={() => simulateCardTap('BRI')}>Brizzi</button>
+        <button class="neo-sim-btn" onclick={() => simulateCardTap('BNI')}>TapCash</button>
+        <button class="neo-sim-btn" onclick={() => simulateCardTap('KCI')}>KMT</button>
+        <button class="neo-sim-btn" onclick={() => simulateCardTap('Mega')}>MegaCash</button>
       </div>
     </section>
   {/if}
 
-  <section class="history-block">
-    <div class="history-header">
-      <div class="history-title-group">
-        <h2 class="section-title">Riwayat Pemindaian</h2>
-        <span class="count-badge">{scanHistory.length}</span>
+  <!-- Dual History Views -->
+  <section class="neo-card-box">
+    <div class="tabs-control-row">
+      <div class="segmented-tabs">
+        <button
+          type="button"
+          class="seg-tab {activeHistoryTab === 'chip' ? 'seg-tab--active' : ''}"
+          onclick={() => activeHistoryTab = 'chip'}
+        >
+          <span>RIWAYAT CHIP</span>
+          {#if currentCard?.history && currentCard.history.length > 0}
+            <span class="seg-badge">{currentCard.history.length}</span>
+          {/if}
+        </button>
+        <button
+          type="button"
+          class="seg-tab {activeHistoryTab === 'saved' ? 'seg-tab--active' : ''}"
+          onclick={() => activeHistoryTab = 'saved'}
+        >
+          <span>KARTU TERSIMPAN</span>
+          {#if savedCards.length > 0}
+            <span class="seg-badge">{savedCards.length}</span>
+          {/if}
+        </button>
       </div>
-      {#if scanHistory.length > 0}
-        <button class="btn-text-danger" onclick={handleClearHistory}>
+
+      {#if activeHistoryTab === 'saved' && savedCards.length > 0}
+        <button class="neo-btn-clean" onclick={handleClearAllData}>
           Bersihkan
         </button>
       {/if}
     </div>
 
-    {#if scanHistory.length === 0}
-      <div class="empty-tray">
-        <svg viewBox="0 0 24 24" width="32" height="32" class="empty-icon" fill="none" stroke="currentColor" stroke-width="1.6">
-          <rect x="2" y="5" width="20" height="14" rx="2" />
-          <line x1="2" y1="10" x2="22" y2="10" />
-        </svg>
-        <div class="empty-title">Belum ada riwayat tap</div>
-        <div class="empty-subtitle">Tempelkan kartu e-money pada punggung ponsel untuk membaca saldo.</div>
-      </div>
-    {:else}
-      <div class="history-stack">
-        {#each scanHistory as item (item.timestamp)}
-          <div
-            class="history-row"
-            onclick={() => handleCopyCardNumber(item.cardNumber)}
-            role="button"
-            tabindex="0"
-            onkeydown={(e) => e.key === 'Enter' && handleCopyCardNumber(item.cardNumber)}
-          >
-            <div class="history-row-main">
-              <span class="history-card-type">{item.cardType}</span>
-              <span class="history-card-pan">
-                {formatDisplayCardNumber(item.cardNumber, settings.maskCardNumber)}
-              </span>
-              <span class="history-card-time">
-                {new Date(item.timestamp).toLocaleString('id-ID', {
-                  day: 'numeric',
-                  month: 'short',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })}
-              </span>
+    <!-- Tab 1: On-Chip Physical History -->
+    {#if activeHistoryTab === 'chip'}
+      {#if currentCard?.history && currentCard.history.length > 0}
+        <div class="neo-list-stack">
+          {#each currentCard.history as tx (`${tx.date}-${tx.time}-${tx.amount}-${tx.terminalId || ''}`)}
+            <div class="neo-list-item">
+              <div class="list-item-main">
+                <div class="tx-badge-bar">
+                  <span class="tx-type-badge {tx.type === 'Top up' ? 'badge--pos' : 'badge--neg'}">
+                    {tx.type.toUpperCase()}
+                  </span>
+                  {#if tx.terminalId}
+                    <span class="terminal-id">TID: {tx.terminalId}</span>
+                  {/if}
+                </div>
+                <div class="tx-time-text">
+                  {formatTransactionDate(tx.date)} • {tx.time}
+                </div>
+              </div>
+              <div class="list-item-side">
+                <span class="tx-amount-val {tx.type === 'Top up' ? 'amount--pos' : 'amount--neg'}">
+                  {tx.type === 'Top up' ? '+' : '-'}{formatRupiah(tx.amount)}
+                </span>
+                {#if typeof tx.balance === 'number'}
+                  <span class="tx-rest-balance">Sisa: {formatRupiah(tx.balance)}</span>
+                {/if}
+              </div>
             </div>
-            <div class="history-row-side">
-              <span class="history-amount">{formatDisplayBalance(item.balance, settings.hideBalance)}</span>
-            </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="neo-empty-tray">
+          <svg viewBox="0 0 24 24" width="36" height="36" class="neo-empty-icon" fill="none" stroke="currentColor" stroke-width="2.2">
+            <rect x="2" y="5" width="20" height="14" rx="2" />
+            <line x1="2" y1="10" x2="22" y2="10" />
+          </svg>
+          <div class="neo-empty-title">Tidak ada transaksi chip</div>
+          <div class="neo-empty-sub">
+            {currentCard ? 'Kartu ini tidak memiliki catatan riwayat transaksi di dalam chip.' : 'Tempelkan kartu fisik uang elektronik untuk membaca log transaksi on-chip.'}
           </div>
-        {/each}
-      </div>
+        </div>
+      {/if}
+    {:else}
+      <!-- Tab 2: Saved Scanned Cards List (Reloadable on click) -->
+      {#if savedCards.length > 0}
+        <div class="neo-list-stack">
+          {#each savedCards as item (item.cardNumber)}
+            <div
+              class="neo-list-item neo-card-item {currentCard?.cardNumber === item.cardNumber ? 'item--active' : ''}"
+              onclick={() => handleSelectSavedCard(item)}
+              role="button"
+              tabindex="0"
+              onkeydown={(e) => e.key === 'Enter' && handleSelectSavedCard(item)}
+            >
+              <div class="list-item-main">
+                <div class="card-header-bar">
+                  <span class="card-type-title">{item.cardType}</span>
+                  {#if currentCard?.cardNumber === item.cardNumber}
+                    <span class="active-pill">AKTIF</span>
+                  {/if}
+                </div>
+                <span class="card-pan-code">
+                  {formatDisplayCardNumber(item.cardNumber, settings.maskCardNumber)}
+                </span>
+                <span class="card-scan-date">
+                  Tap: {new Date(item.timestamp || item.updatedAt || '').toLocaleString('id-ID', {
+                    day: 'numeric',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                </span>
+              </div>
+
+              <div class="list-item-side">
+                <span class="card-balance-highlight">
+                  {formatDisplayBalance(item.balance ?? item.lastBalance ?? 0, settings.hideBalance)}
+                </span>
+                <button
+                  type="button"
+                  class="neo-delete-btn"
+                  onclick={(e) => handleDeleteSavedCard(e, item.cardNumber)}
+                  title="Hapus dari daftar tersimpan"
+                  aria-label="Hapus dari daftar tersimpan"
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="neo-empty-tray">
+          <svg viewBox="0 0 24 24" width="36" height="36" class="neo-empty-icon" fill="none" stroke="currentColor" stroke-width="2.2">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <line x1="6" y1="8" x2="10" y2="8" />
+            <line x1="6" y1="12" x2="18" y2="12" />
+            <line x1="6" y1="16" x2="14" y2="16" />
+          </svg>
+          <div class="neo-empty-title">Belum ada kartu tersimpan</div>
+          <div class="neo-empty-sub">
+            Pindai kartu untuk menyimpan informasi saldo dan nomor kartu secara otomatis.
+          </div>
+        </div>
+      {/if}
     {/if}
   </section>
 
+  <!-- Settings Modal -->
   {#if showSettingsModal}
-    <div class="modal-backdrop" onclick={() => showSettingsModal = false} role="presentation">
+    <div class="neo-modal-backdrop" onclick={() => showSettingsModal = false} role="presentation">
       <div
-        class="modal-sheet"
+        class="neo-modal-card"
         onclick={(e) => e.stopPropagation()}
         onkeydown={(e) => e.key === 'Escape' && (showSettingsModal = false)}
         role="dialog"
@@ -733,140 +735,122 @@
         aria-labelledby="settings-title"
         tabindex="-1"
       >
-        <div class="modal-sheet-header">
-          <h2 id="settings-title" class="modal-sheet-title">Pengaturan</h2>
-          <button class="btn-icon" onclick={() => showSettingsModal = false} aria-label="Tutup">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <div class="modal-card-header">
+          <h2 id="settings-title" class="modal-card-title">PENGATURAN</h2>
+          <button class="neo-btn-icon" onclick={() => showSettingsModal = false} aria-label="Tutup">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
 
-        <div class="settings-items">
+        <div class="settings-list">
           <!-- Theme Selector -->
-          <div class="setting-group">
-            <div class="setting-title">Tema Tampilan</div>
-            <div class="setting-description">Pilih tema antarmuka aplikasi</div>
-            <div class="theme-segmented-control">
+          <div class="setting-item-group">
+            <div class="setting-name">Tema Tampilan</div>
+            <div class="setting-hint">Pilih skema warna antarmuka Neobrutalism</div>
+            <div class="neo-theme-segmented">
               <button
                 type="button"
-                class="theme-segment {settings.theme === 'system' ? 'theme-segment--active' : ''}"
+                class="theme-btn {settings.theme === 'system' ? 'theme-btn--active' : ''}"
                 onclick={() => updateSetting('theme', 'system')}
               >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="2" y="3" width="20" height="14" rx="2" />
-                  <line x1="8" y1="21" x2="16" y2="21" />
-                  <line x1="12" y1="17" x2="12" y2="21" />
-                </svg>
-                <span>Sistem</span>
+                SISTEM
               </button>
               <button
                 type="button"
-                class="theme-segment {settings.theme === 'light' ? 'theme-segment--active' : ''}"
+                class="theme-btn {settings.theme === 'light' ? 'theme-btn--active' : ''}"
                 onclick={() => updateSetting('theme', 'light')}
               >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="5" />
-                  <line x1="12" y1="1" x2="12" y2="3" />
-                  <line x1="12" y1="21" x2="12" y2="23" />
-                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                  <line x1="1" y1="12" x2="3" y2="12" />
-                  <line x1="21" y1="12" x2="23" y2="12" />
-                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-                </svg>
-                <span>Terang</span>
+                TERANG
               </button>
               <button
                 type="button"
-                class="theme-segment {settings.theme === 'dark' ? 'theme-segment--active' : ''}"
+                class="theme-btn {settings.theme === 'dark' ? 'theme-btn--active' : ''}"
                 onclick={() => updateSetting('theme', 'dark')}
               >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                </svg>
-                <span>Gelap</span>
+                GELAP
               </button>
             </div>
           </div>
 
-          <label class="setting-row">
+          <label class="setting-toggle-row">
             <div>
-              <div class="setting-title">Umpan Balik Suara</div>
-              <div class="setting-description">Bunyikan nada saat kartu berhasil dipindai</div>
+              <div class="setting-name">Nada Bunyi (Beep)</div>
+              <div class="setting-hint">Bunyikan audio saat kartu terdeteksi</div>
             </div>
             <input
               type="checkbox"
-              class="ios-switch"
+              class="neo-checkbox"
               checked={settings.enableSound}
               onchange={(e) => updateSetting('enableSound', (e.target as HTMLInputElement).checked)}
             />
           </label>
 
-          <label class="setting-row">
+          <label class="setting-toggle-row">
             <div>
-              <div class="setting-title">Getaran (Haptics)</div>
-              <div class="setting-description">Getarkan perangkat saat mendeteksi kartu</div>
+              <div class="setting-name">Getaran (Haptics)</div>
+              <div class="setting-hint">Getarkan ponsel saat kartu terbaca</div>
             </div>
             <input
               type="checkbox"
-              class="ios-switch"
+              class="neo-checkbox"
               checked={settings.enableHaptics}
               onchange={(e) => updateSetting('enableHaptics', (e.target as HTMLInputElement).checked)}
             />
           </label>
 
-          <label class="setting-row">
+          <label class="setting-toggle-row">
             <div>
-              <div class="setting-title">Sensor Masking PAN</div>
-              <div class="setting-description">Samarkan 8 digit tengah nomor kartu</div>
+              <div class="setting-name">Sensor Nomor (Mask PAN)</div>
+              <div class="setting-hint">Samarkan digit tengah nomor kartu</div>
             </div>
             <input
               type="checkbox"
-              class="ios-switch"
+              class="neo-checkbox"
               checked={settings.maskCardNumber}
               onchange={(e) => updateSetting('maskCardNumber', (e.target as HTMLInputElement).checked)}
             />
           </label>
 
-          <label class="setting-row">
+          <label class="setting-toggle-row">
             <div>
-              <div class="setting-title">Sembunyikan Saldo</div>
-              <div class="setting-description">Tutup nominal saldo dengan sensor titik</div>
+              <div class="setting-name">Sembunyikan Saldo</div>
+              <div class="setting-hint">Tutup angka saldo dengan sensor titik</div>
             </div>
             <input
               type="checkbox"
-              class="ios-switch"
+              class="neo-checkbox"
               checked={settings.hideBalance}
               onchange={(e) => updateSetting('hideBalance', (e.target as HTMLInputElement).checked)}
             />
           </label>
 
-          <label class="setting-row">
+          <label class="setting-toggle-row">
             <div>
-              <div class="setting-title">Sinkronisasi Riwayat</div>
-              <div class="setting-description">Simpan setiap sesi tap ke storage lokal & cloud</div>
+              <div class="setting-name">Simpan Otomatis</div>
+              <div class="setting-hint">Simpan kartu ke basis data lokal perangkat</div>
             </div>
             <input
               type="checkbox"
-              class="ios-switch"
+              class="neo-checkbox"
               checked={settings.autoSaveHistory}
               onchange={(e) => updateSetting('autoSaveHistory', (e.target as HTMLInputElement).checked)}
             />
           </label>
         </div>
 
-        <button class="btn btn-primary" onclick={() => showSettingsModal = false}>
-          Tutup
+        <button class="neo-btn neo-btn-primary" onclick={() => showSettingsModal = false}>
+          Tutup Pengaturan
         </button>
       </div>
     </div>
   {/if}
 
+  <!-- Neobrutalist Toast Notification -->
   {#if toastMessage}
-    <div class="toast-bubble" role="status">
+    <div class="neo-toast" role="status">
       {toastMessage}
     </div>
   {/if}
@@ -877,946 +861,781 @@
     box-sizing: border-box;
   }
 
-  /* Design Tokens System: Light vs Dark Theme Variables */
+  /* Neobrutalism Design Tokens */
   :global(:root) {
-    --bg-page: #090d16;
-    --text-primary: #f8fafc;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
-    --surface-card: #131b2e;
-    --surface-card-hover: #1e293b;
-    --surface-elevated: #1e293b;
-    --surface-sheet: #0f172a;
-    --border-subtle: rgba(255, 255, 255, 0.08);
-    --border-hover: rgba(255, 255, 255, 0.16);
-    --primary-color: #0284c7;
-    --primary-hover: #0369a1;
-    --brand-icon-color: #38bdf8;
-    --accent-glow: rgba(56, 189, 248, 0.15);
-    --modal-backdrop-bg: rgba(0, 0, 0, 0.75);
-    --toast-bg: #1e293b;
+    --neo-bg: #f5f5f0;
+    --neo-border: #000000;
+    --neo-shadow: #000000;
+    --neo-surface: #ffffff;
+    --neo-surface-alt: #f0f0eb;
+    --neo-text: #000000;
+    --neo-text-subtle: #4b5563;
+    --neo-yellow: #ffe600;
+    --neo-blue: #3b82f6;
+    --neo-green: #00e599;
+    --neo-red: #ff4d4d;
+    --neo-purple: #a855f7;
+    --neo-modal-backdrop: rgba(0, 0, 0, 0.65);
   }
 
   :global(.theme-light) {
-    --bg-page: #f8fafc;
-    --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --text-muted: #94a3b8;
-    --surface-card: #ffffff;
-    --surface-card-hover: #f1f5f9;
-    --surface-elevated: #f8fafc;
-    --surface-sheet: #ffffff;
-    --border-subtle: #e2e8f0;
-    --border-hover: #cbd5e1;
-    --primary-color: #0284c7;
-    --primary-hover: #0369a1;
-    --brand-icon-color: #0284c7;
-    --accent-glow: rgba(2, 132, 199, 0.12);
-    --modal-backdrop-bg: rgba(15, 23, 42, 0.45);
-    --toast-bg: #0f172a;
+    --neo-bg: #f5f5f0;
+    --neo-border: #000000;
+    --neo-shadow: #000000;
+    --neo-surface: #ffffff;
+    --neo-surface-alt: #f0f0eb;
+    --neo-text: #000000;
+    --neo-text-subtle: #4b5563;
+    --neo-yellow: #ffe600;
+    --neo-blue: #3b82f6;
+    --neo-green: #00e599;
+    --neo-red: #ff4d4d;
+    --neo-purple: #a855f7;
+    --neo-modal-backdrop: rgba(0, 0, 0, 0.65);
   }
 
   :global(.theme-dark) {
-    --bg-page: #090d16;
-    --text-primary: #f8fafc;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
-    --surface-card: #131b2e;
-    --surface-card-hover: #1e293b;
-    --surface-elevated: #1e293b;
-    --surface-sheet: #0f172a;
-    --border-subtle: rgba(255, 255, 255, 0.08);
-    --border-hover: rgba(255, 255, 255, 0.16);
-    --primary-color: #0284c7;
-    --primary-hover: #0369a1;
-    --brand-icon-color: #38bdf8;
-    --accent-glow: rgba(56, 189, 248, 0.15);
-    --modal-backdrop-bg: rgba(0, 0, 0, 0.75);
-    --toast-bg: #1e293b;
+    --neo-bg: #141416;
+    --neo-border: #ffffff;
+    --neo-shadow: #ffffff;
+    --neo-surface: #202024;
+    --neo-surface-alt: #2a2a30;
+    --neo-text: #ffffff;
+    --neo-text-subtle: #9ca3af;
+    --neo-yellow: #ffe600;
+    --neo-blue: #60a5fa;
+    --neo-green: #34d399;
+    --neo-red: #f87171;
+    --neo-purple: #c084fc;
+    --neo-modal-backdrop: rgba(0, 0, 0, 0.82);
   }
 
   :global(body) {
     margin: 0;
     padding: 0;
-    background-color: var(--bg-page);
-    color: var(--text-primary);
+    background-color: var(--neo-bg);
+    color: var(--neo-text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     -webkit-tap-highlight-color: transparent;
-    transition: background-color 0.25s ease, color 0.25s ease;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 
   .shell {
     max-width: 480px;
     margin: 0 auto;
-    padding: 24px 18px 48px;
+    padding: 20px 16px 48px;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 18px;
   }
 
   /* Header */
-  .app-header {
-    margin-bottom: 4px;
-  }
-
-  .header-inner {
+  .neo-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 12px;
   }
 
-  .brand {
+  .brand-group {
     display: flex;
     align-items: center;
     gap: 12px;
   }
 
-  .brand-badge {
-    width: 42px;
-    height: 42px;
-    border-radius: 12px;
-    background: var(--surface-card);
-    border: 1px solid var(--border-subtle);
+  .brand-box {
+    width: 44px;
+    height: 44px;
+    background: var(--neo-yellow);
+    border: 2.5px solid var(--neo-border);
+    box-shadow: 3px 3px 0px var(--neo-shadow);
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--brand-icon-color);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    color: #000000;
   }
 
   .brand-icon {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
   }
 
-  .brand-name {
+  .brand-title {
     margin: 0;
-    font-size: 19px;
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    color: var(--neo-text);
+    text-transform: uppercase;
+  }
+
+  .brand-sub {
+    margin: 1px 0 0 0;
+    font-size: 11px;
     font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--neo-text-subtle);
   }
 
-  .brand-caption {
-    margin: 2px 0 0 0;
-    font-size: 12px;
-    color: var(--text-secondary);
-  }
-
-  .header-actions {
+  .header-tools {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
   }
 
-  .status-pill {
+  .neo-status-pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 10px;
-    border-radius: 9999px;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
+    padding: 5px 10px;
+    border: 2px solid var(--neo-border);
+    box-shadow: 2px 2px 0px var(--neo-shadow);
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
-  .status-pill--active {
-    background: rgba(16, 185, 129, 0.12);
-    color: #10b981;
-    border: 1px solid rgba(16, 185, 129, 0.3);
+  .status--active {
+    background: var(--neo-green);
+    color: #000000;
   }
 
-  .status-pill--inactive {
-    background: rgba(239, 68, 68, 0.12);
-    color: #ef4444;
-    border: 1px solid rgba(239, 68, 68, 0.3);
+  .status--inactive {
+    background: var(--neo-red);
+    color: #ffffff;
   }
 
-  .status-dot {
-    width: 6px;
-    height: 6px;
+  .status-indicator {
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
-    background-color: currentColor;
+    background: currentColor;
+    border: 1px solid #000000;
   }
 
-  .btn-icon {
-    background: var(--surface-card);
-    border: 1px solid var(--border-subtle);
-    color: var(--text-secondary);
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
+  .neo-btn-icon {
+    width: 40px;
+    height: 40px;
+    background: var(--neo-surface);
+    border: 2.5px solid var(--neo-border);
+    box-shadow: 3px 3px 0px var(--neo-shadow);
+    border-radius: 8px;
+    color: var(--neo-text);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
   }
 
-  .btn-icon:hover {
-    color: var(--text-primary);
-    background: var(--surface-card-hover);
-    border-color: var(--border-hover);
+  .neo-btn-icon:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0px var(--neo-shadow);
   }
 
-  /* NFC Disabled Alert Banner */
-  .nfc-alert-banner {
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(185, 28, 28, 0.08));
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    border-radius: 14px;
-    padding: 14px 16px;
+  /* Alert Box */
+  .neo-alert-box {
+    background: var(--neo-yellow);
+    color: #000000;
+    border: 2.5px solid var(--neo-border);
+    box-shadow: 4px 4px 0px var(--neo-shadow);
+    border-radius: 12px;
+    padding: 14px;
     display: flex;
     flex-direction: column;
     gap: 12px;
   }
 
-  .nfc-alert-body {
+  .alert-content {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: 10px;
   }
 
-  .nfc-alert-icon {
-    color: #ef4444;
+  .alert-icon {
     flex-shrink: 0;
     margin-top: 1px;
+    color: #000000;
   }
 
-  .nfc-alert-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: #f87171;
-  }
-
-  .nfc-alert-desc {
-    font-size: 12px;
-    color: var(--text-secondary);
-    margin-top: 2px;
-    line-height: 1.4;
-  }
-
-  .btn-nfc-activate {
-    width: 100%;
-    background: #dc2626;
-    color: #ffffff;
+  .alert-title {
     font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+  }
+
+  .alert-desc {
+    font-size: 12px;
     font-weight: 600;
-    padding: 9px;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: background 0.15s ease;
+    margin-top: 2px;
+    line-height: 1.35;
   }
 
-  .btn-nfc-activate:hover {
-    background: #ef4444;
-  }
-
-  /* Card Hero */
-  .card-hero {
+  /* Card Section */
+  .card-section {
     display: flex;
     flex-direction: column;
     gap: 14px;
     width: 100%;
   }
 
-  .card-surface {
-    aspect-ratio: 1.586 / 1;
-    min-height: 204px;
-    width: 100%;
-    max-width: 420px;
-    margin: 0 auto;
-    border-radius: 18px;
-    padding: 20px 22px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    position: relative;
-    overflow: hidden;
-    cursor: pointer;
-    box-shadow:
-      0 14px 34px -6px rgba(0, 0, 0, 0.45),
-      0 24px 56px -12px rgba(0, 0, 0, 0.35),
-      inset 0 1px 1.5px rgba(255, 255, 255, 0.35),
-      inset 0 -1.5px 2px rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
-    user-select: none;
-  }
-
-  .card-surface:active {
-    transform: scale(0.985);
-  }
-
-  .card-bg-art {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: inherit;
-    z-index: 0;
-    pointer-events: none;
-  }
-
-  .card-gloss-sheen {
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.03) 35%, rgba(0, 0, 0, 0.2) 75%, rgba(0, 0, 0, 0.45) 100%),
-      linear-gradient(to bottom, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.08) 40%, rgba(0, 0, 0, 0.45) 100%);
-    pointer-events: none;
-    z-index: 1;
-  }
-
-  /* Card Skins */
-  .card-surface--empty {
-    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-    border: 1px dashed rgba(255, 255, 255, 0.2);
-  }
-
-  .card-surface.mandiri {
-    background: linear-gradient(135deg, #0284c7 0%, #0369a1 40%, #0c4a6e 100%);
-  }
-
-  .card-surface.bca {
-    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 45%, #172554 100%);
-  }
-
-  .card-surface.bri {
-    background: linear-gradient(135deg, #0284c7 0%, #1e40af 50%, #0f172a 100%);
-  }
-
-  .card-surface.bni {
-    background: linear-gradient(135deg, #ea580c 0%, #c2410c 50%, #7c2d12 100%);
-  }
-
-  .card-surface.dki {
-    background: linear-gradient(135deg, #0d9488 0%, #0f766e 50%, #115e59 100%);
-  }
-
-  .card-surface.kci {
-    background: linear-gradient(135deg, #dc2626 0%, #b91c1c 50%, #7f1d1d 100%);
-  }
-
-  .card-surface.mega {
-    background: linear-gradient(135deg, #d97706 0%, #b45309 50%, #78350f 100%);
-  }
-
-  .card-header-row,
-  .card-body-row,
-  .card-footer-row {
-    position: relative;
-    z-index: 2;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .card-body-row {
-    gap: 16px;
-  }
-
-  .card-brand-label {
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #ffffff;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8), 0 2px 6px rgba(0, 0, 0, 0.6);
-    display: flex;
-    align-items: center;
-  }
-
-  .card-issuer-logo {
-    max-height: 28px;
-    max-width: 110px;
-    object-fit: contain;
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
-  }
-
-  .nfc-contactless-mark {
-    color: #ffffff;
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
-    display: flex;
-    align-items: center;
-  }
-
-  .smart-chip {
-    width: 46px;
-    height: 35px;
-    border-radius: 6px;
-    background: linear-gradient(135deg, #fef08a 0%, #eab308 28%, #ca8a04 68%, #a16207 100%);
-    box-shadow:
-      inset 0 1px 1px rgba(255, 255, 255, 0.7),
-      inset 0 -1px 1px rgba(0, 0, 0, 0.6),
-      0 2px 6px rgba(0, 0, 0, 0.4);
-    position: relative;
-    overflow: hidden;
-    border: 0.5px solid rgba(161, 98, 7, 0.7);
-    flex-shrink: 0;
-  }
-
-  .smart-chip-grid {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-
-  .smart-chip-grid::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: rgba(113, 63, 18, 0.6);
-    transform: translateY(-50%);
-  }
-
-  .smart-chip-grid::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 36%;
-    width: 28%;
-    border-left: 1px solid rgba(113, 63, 18, 0.6);
-    border-right: 1px solid rgba(113, 63, 18, 0.6);
-  }
-
-  .smart-chip-core {
-    position: absolute;
-    top: 24%;
-    bottom: 24%;
-    left: 32%;
-    right: 32%;
-    border: 1px solid rgba(113, 63, 18, 0.6);
-    border-radius: 3px;
-    background: rgba(254, 240, 138, 0.2);
-  }
-
-  .card-balance-block {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 3px;
-    text-align: right;
-  }
-
-  .card-balance-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .balance-eye-btn, .pan-eye-btn {
-    background: rgba(0, 0, 0, 0.35);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    color: #ffffff;
-    cursor: pointer;
-    border-radius: 6px;
-    padding: 3px 5px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-    transition: all 0.15s ease;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-  }
-
-  .balance-eye-btn:hover, .pan-eye-btn:hover {
-    background: rgba(255, 255, 255, 0.25);
-    border-color: rgba(255, 255, 255, 0.4);
-  }
-
-  .card-balance-tag {
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.85);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
-  }
-
-  .card-balance-amount {
-    font-family: ui-monospace, 'Courier New', Menlo, Consolas, monospace;
-    font-size: 28px;
-    font-weight: 800;
-    letter-spacing: -0.01em;
-    color: #ffffff;
-    font-variant-numeric: tabular-nums;
-    text-shadow:
-      1px 1px 0px rgba(255, 255, 255, 0.7),
-      -1px -1px 0px rgba(0, 0, 0, 0.6),
-      0px 2px 5px rgba(0, 0, 0, 0.85);
-  }
-
-  .card-footer-row {
-    align-items: flex-end;
-  }
-
-  .card-pan-wrapper {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .card-pan-label-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .card-pan-label, .card-time-label {
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.85);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
-  }
-
-  .card-pan {
-    font-family: 'OCR A Extended', 'Courier New', Consolas, monospace, ui-monospace;
-    font-size: 14.5px;
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    color: #f8fafc;
-    text-shadow:
-      1px 1px 0px rgba(255, 255, 255, 0.75),
-      -1px -1px 0px rgba(0, 0, 0, 0.65),
-      0px 2px 4px rgba(0, 0, 0, 0.85);
-    user-select: all;
-  }
-
-  .card-time-wrapper {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 3px;
-    text-align: right;
-  }
-
-  .card-time {
-    font-family: ui-monospace, 'Courier New', Menlo, monospace;
-    font-size: 12px;
-    font-weight: 600;
-    color: #ffffff;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
-  }
-
-  /* Action Buttons Grid */
-  .action-grid {
+  /* Actions Grid */
+  .neo-action-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 8px;
   }
 
-  .action-btn {
-    background: var(--surface-card);
-    border: 1px solid var(--border-subtle);
-    color: var(--text-primary);
-    padding: 10px 8px;
-    border-radius: 12px;
-    font-size: 12px;
-    font-weight: 600;
+  .neo-action-btn {
+    background: var(--neo-surface);
+    border: 2px solid var(--neo-border);
+    box-shadow: 3px 3px 0px var(--neo-shadow);
+    border-radius: 8px;
+    color: var(--neo-text);
+    padding: 10px 4px;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 5px;
+    gap: 4px;
     cursor: pointer;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-    transition: all 0.15s ease;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
   }
 
-  .action-btn:hover {
-    background: var(--surface-card-hover);
-    border-color: var(--border-hover);
+  .neo-action-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0px var(--neo-shadow);
   }
 
-  .action-btn-danger {
-    color: #ef4444;
+  .btn-danger-action {
+    background: var(--neo-red);
+    color: #ffffff;
   }
 
-  .action-btn-danger:hover {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: rgba(239, 68, 68, 0.3);
-  }
-
-  /* Radar / Sensor Box */
-  .radar-box {
+  /* Radar Box */
+  .neo-radar-box {
     display: flex;
     align-items: center;
-    gap: 12px;
-    background: var(--surface-card);
-    border: 1px solid var(--border-subtle);
-    padding: 13px 16px;
-    border-radius: 14px;
+    gap: 10px;
+    background: var(--neo-surface);
+    border: 2px solid var(--neo-border);
+    box-shadow: 3px 3px 0px var(--neo-shadow);
+    border-radius: 8px;
+    padding: 11px 14px;
   }
 
-  .radar-pulse {
-    width: 10px;
-    height: 10px;
+  .radar-dot {
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
-    background: var(--brand-icon-color);
+    background: var(--neo-yellow);
+    border: 1.5px solid var(--neo-border);
     flex-shrink: 0;
   }
 
-  .radar-box--active .radar-pulse {
-    animation: radar-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+  .neo-radar--active .radar-dot {
+    background: var(--neo-green);
+    animation: neo-pulse 1.4s infinite;
   }
 
-  @keyframes radar-ping {
-    0% { transform: scale(0.95); opacity: 0.8; }
-    50% { transform: scale(1.4); opacity: 1; box-shadow: 0 0 10px var(--brand-icon-color); }
-    100% { transform: scale(0.95); opacity: 0.8; }
+  @keyframes neo-pulse {
+    0% { transform: scale(0.9); }
+    50% { transform: scale(1.3); }
+    100% { transform: scale(0.9); }
   }
 
-  .radar-label {
+  .radar-text {
     margin: 0;
-    font-size: 13px;
-    color: var(--text-secondary);
-    line-height: 1.4;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--neo-text);
+    line-height: 1.3;
   }
 
-  /* Section Styling */
-  .section-heading {
+  /* Universal Neobrutalist Box */
+  .neo-card-box {
+    background: var(--neo-surface);
+    border: 2.5px solid var(--neo-border);
+    box-shadow: 4px 4px 0px var(--neo-shadow);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .box-heading {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 6px;
   }
 
-  .section-title {
+  .box-title {
     margin: 0;
-    font-size: 15px;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.05em;
+    color: var(--neo-text);
+  }
+
+  .box-sub {
+    margin: 0;
+    font-size: 12px;
     font-weight: 600;
-    letter-spacing: -0.01em;
-    color: var(--text-primary);
+    color: var(--neo-text-subtle);
   }
 
-  /* Simulator Card */
-  .simulator-card {
-    background: var(--surface-card);
-    border: 1px solid var(--border-subtle);
-    border-radius: 16px;
-    padding: 16px;
-  }
-
-  .sim-badge {
-    background: var(--primary-color);
-    color: #ffffff;
+  .neo-tag {
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 900;
     padding: 2px 7px;
-    border-radius: 9999px;
+    border: 1.5px solid var(--neo-border);
+    border-radius: 4px;
     text-transform: uppercase;
   }
 
-  .sim-desc {
-    margin: 0 0 12px 0;
-    font-size: 12px;
-    color: var(--text-secondary);
+  .neo-tag--accent {
+    background: var(--neo-yellow);
+    color: #000000;
   }
 
-  .sim-grid {
+  /* Sim Grid */
+  .neo-sim-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 8px;
   }
 
-  .btn-mock {
-    background: var(--surface-elevated);
-    border: 1px solid var(--border-subtle);
-    color: var(--text-primary);
-    font-size: 12px;
-    font-weight: 600;
-    padding: 9px 8px;
+  .neo-sim-btn {
+    background: var(--neo-surface-alt);
+    border: 2px solid var(--neo-border);
+    box-shadow: 2px 2px 0px var(--neo-shadow);
+    color: var(--neo-text);
+    font-size: 11px;
+    font-weight: 800;
+    padding: 8px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: center;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+
+  .neo-sim-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 0px 0px 0px var(--neo-shadow);
+  }
+
+  .neo-sim-btn--yellow {
+    background: var(--neo-yellow);
+    color: #000000;
+  }
+
+  /* Segmented Tabs */
+  .tabs-control-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .segmented-tabs {
+    display: flex;
+    background: var(--neo-surface-alt);
+    border: 2px solid var(--neo-border);
     border-radius: 8px;
+    padding: 3px;
+    gap: 4px;
+  }
+
+  .seg-tab {
+    background: transparent;
+    border: none;
+    color: var(--neo-text-subtle);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    padding: 6px 10px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
     cursor: pointer;
     transition: all 0.15s ease;
   }
 
-  .btn-mock:hover {
-    background: var(--surface-card-hover);
-    border-color: var(--brand-icon-color);
+  .seg-tab--active {
+    background: var(--neo-yellow);
+    color: #000000;
+    border: 1.5px solid var(--neo-border);
+    box-shadow: 2px 2px 0px var(--neo-shadow);
   }
 
-  /* History Block */
-  .history-block {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .history-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .history-title-group {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .count-badge {
-    background: var(--surface-card);
-    border: 1px solid var(--border-subtle);
-    color: var(--text-secondary);
-    font-size: 11px;
-    font-weight: 600;
-    padding: 1px 7px;
+  .seg-badge {
+    background: #000000;
+    color: #ffffff;
+    font-size: 9px;
+    font-weight: 900;
+    padding: 1px 5px;
     border-radius: 9999px;
   }
 
-  .btn-text-danger {
+  .neo-btn-clean {
     background: transparent;
-    border: none;
-    color: #ef4444;
-    font-size: 12px;
-    font-weight: 500;
+    border: 1.5px solid var(--neo-border);
+    color: var(--neo-red);
+    font-size: 11px;
+    font-weight: 800;
+    padding: 4px 8px;
+    border-radius: 6px;
     cursor: pointer;
-    padding: 4px;
-    transition: opacity 0.15s ease;
   }
 
-  .btn-text-danger:hover {
-    opacity: 0.8;
+  /* List Items */
+  .neo-list-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
-  .empty-tray {
-    background: var(--surface-card);
-    border: 1px dashed var(--border-subtle);
-    border-radius: 16px;
-    padding: 36px 20px;
+  .neo-list-item {
+    background: var(--neo-surface-alt);
+    border: 2px solid var(--neo-border);
+    box-shadow: 3px 3px 0px var(--neo-shadow);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+
+  .neo-list-item:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0px var(--neo-shadow);
+  }
+
+  .neo-card-item.item--active {
+    border-color: var(--neo-blue);
+    background: var(--neo-surface);
+  }
+
+  .list-item-main {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .tx-badge-bar,
+  .card-header-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tx-type-badge {
+    font-size: 9px;
+    font-weight: 900;
+    padding: 2px 6px;
+    border: 1px solid var(--neo-border);
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+
+  .badge--pos {
+    background: var(--neo-green);
+    color: #000000;
+  }
+
+  .badge--neg {
+    background: var(--neo-yellow);
+    color: #000000;
+  }
+
+  .terminal-id {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--neo-text-subtle);
+  }
+
+  .tx-time-text {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--neo-text-subtle);
+  }
+
+  .card-type-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--neo-text);
+  }
+
+  .active-pill {
+    background: var(--neo-green);
+    color: #000000;
+    border: 1px solid var(--neo-border);
+    font-size: 8px;
+    font-weight: 900;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+
+  .card-pan-code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--neo-text-subtle);
+  }
+
+  .card-scan-date {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--neo-text-subtle);
+  }
+
+  .list-item-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+
+  .tx-amount-val {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 14px;
+    font-weight: 900;
+  }
+
+  .amount--pos {
+    color: var(--neo-green);
+  }
+
+  .amount--neg {
+    color: var(--neo-text);
+  }
+
+  .tx-rest-balance {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--neo-text-subtle);
+  }
+
+  .card-balance-highlight {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 15px;
+    font-weight: 900;
+    color: var(--neo-text);
+  }
+
+  .neo-delete-btn {
+    background: transparent;
+    border: 1px solid var(--neo-border);
+    color: var(--neo-red);
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s ease;
+  }
+
+  .neo-delete-btn:active {
+    transform: scale(0.9);
+  }
+
+  /* Empty Tray */
+  .neo-empty-tray {
+    border: 2px dashed var(--neo-border);
+    border-radius: 8px;
+    padding: 28px 16px;
     text-align: center;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
   }
 
-  .empty-icon {
-    color: var(--text-muted);
-    margin-bottom: 4px;
+  .neo-empty-icon {
+    color: var(--neo-text-subtle);
   }
 
-  .empty-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .empty-subtitle {
-    font-size: 12px;
-    color: var(--text-muted);
-    max-width: 260px;
-    line-height: 1.4;
-  }
-
-  .history-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .history-row {
-    background: var(--surface-card);
-    border: 1px solid var(--border-subtle);
-    border-radius: 12px;
-    padding: 13px 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease;
-  }
-
-  .history-row:hover {
-    background: var(--surface-card-hover);
-    border-color: var(--border-hover);
-  }
-
-  .history-row-main {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .history-card-type {
+  .neo-empty-title {
     font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
+    font-weight: 900;
+    text-transform: uppercase;
+    color: var(--neo-text);
   }
 
-  .history-card-pan {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  .neo-empty-sub {
     font-size: 11px;
-    color: var(--text-secondary);
+    font-weight: 600;
+    color: var(--neo-text-subtle);
+    max-width: 240px;
+    line-height: 1.35;
   }
 
-  .history-card-time {
-    font-size: 10px;
-    color: var(--text-muted);
+  /* Universal Buttons */
+  .neo-btn {
+    border: 2.5px solid var(--neo-border);
+    box-shadow: 3px 3px 0px var(--neo-shadow);
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    padding: 10px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
   }
 
-  .history-amount {
-    font-size: 15px;
-    font-weight: 700;
-    color: #10b981;
-    font-variant-numeric: tabular-nums;
+  .neo-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0px var(--neo-shadow);
   }
 
-  /* Settings Modal */
-  .modal-backdrop {
+  .neo-btn-primary {
+    background: var(--neo-yellow);
+    color: #000000;
+    width: 100%;
+  }
+
+  .neo-btn-danger {
+    background: var(--neo-red);
+    color: #ffffff;
+    width: 100%;
+  }
+
+  /* Modal */
+  .neo-modal-backdrop {
     position: fixed;
     inset: 0;
-    background: var(--modal-backdrop-bg);
-    backdrop-filter: blur(4px);
+    background: var(--neo-modal-backdrop);
     display: flex;
     align-items: flex-end;
     justify-content: center;
     z-index: 1000;
   }
 
-  .modal-sheet {
-    background: var(--surface-sheet);
-    border-top: 1px solid var(--border-subtle);
-    border-radius: 20px 20px 0 0;
+  .neo-modal-card {
+    background: var(--neo-surface);
+    border: 3px solid var(--neo-border);
+    box-shadow: 0px -4px 0px var(--neo-shadow);
+    border-radius: 16px 16px 0 0;
     width: 100%;
     max-width: 480px;
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.2);
-  }
-
-  .modal-sheet-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .modal-sheet-title {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--text-primary);
-  }
-
-  .settings-items {
+    padding: 20px;
     display: flex;
     flex-direction: column;
     gap: 16px;
   }
 
-  /* Theme Segmented Control */
-  .setting-group {
+  .modal-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .modal-card-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+  }
+
+  .settings-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border-subtle);
+    gap: 14px;
   }
 
-  .theme-segmented-control {
+  .setting-item-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--neo-border);
+  }
+
+  .setting-name {
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .setting-hint {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--neo-text-subtle);
+  }
+
+  .neo-theme-segmented {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    background: var(--surface-card);
-    border: 1px solid var(--border-subtle);
-    padding: 4px;
-    border-radius: 10px;
+    background: var(--neo-surface-alt);
+    border: 2px solid var(--neo-border);
+    border-radius: 6px;
+    padding: 3px;
     gap: 4px;
+    margin-top: 4px;
   }
 
-  .theme-segment {
+  .theme-btn {
     background: transparent;
     border: none;
-    color: var(--text-secondary);
-    padding: 8px 10px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
+    color: var(--neo-text-subtle);
+    font-size: 11px;
+    font-weight: 800;
+    padding: 7px;
+    border-radius: 4px;
     cursor: pointer;
-    transition: all 0.15s ease;
   }
 
-  .theme-segment--active {
-    background: var(--primary-color);
-    color: #ffffff;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  .theme-btn--active {
+    background: var(--neo-yellow);
+    color: #000000;
+    border: 1px solid var(--neo-border);
+    box-shadow: 1.5px 1.5px 0px var(--neo-shadow);
   }
 
-  .setting-row {
+  .setting-toggle-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
     cursor: pointer;
   }
 
-  .setting-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .setting-description {
-    font-size: 12px;
-    color: var(--text-secondary);
-    margin-top: 2px;
-  }
-
-  .ios-switch {
+  .neo-checkbox {
     width: 22px;
     height: 22px;
-    accent-color: var(--primary-color);
+    accent-color: var(--neo-yellow);
+    border: 2px solid var(--neo-border);
     cursor: pointer;
   }
 
-  .btn-primary {
-    width: 100%;
-    background: var(--primary-color);
-    color: #ffffff;
-    border: none;
-    font-size: 14px;
-    font-weight: 600;
-    padding: 12px;
-    border-radius: 10px;
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-
-  .btn-primary:hover {
-    background: var(--primary-hover);
-  }
-
-  /* Toast Notification */
-  .toast-bubble {
+  /* Toast */
+  .neo-toast {
     position: fixed;
     bottom: 24px;
     left: 50%;
     transform: translateX(-50%);
-    background: var(--toast-bg);
-    border: 1px solid var(--border-subtle);
-    color: var(--text-primary);
-    font-size: 13px;
-    font-weight: 500;
+    background: var(--neo-yellow);
+    color: #000000;
+    border: 2.5px solid var(--neo-border);
+    box-shadow: 4px 4px 0px var(--neo-shadow);
+    font-size: 12px;
+    font-weight: 900;
     padding: 10px 18px;
-    border-radius: 9999px;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+    border-radius: 6px;
     z-index: 2000;
+    text-transform: uppercase;
   }
 </style>
