@@ -55,7 +55,9 @@ fun MainScreen(
     onDeleteSavedCard: (String) -> Unit,
     onClearAllData: () -> Unit,
     onSaveLocationAlias: (String, String) -> Unit,
-    onSelectSavedCard: (StoredCard) -> Unit
+    onSelectSavedCard: (StoredCard) -> Unit,
+    onExportPdf: (CardBalanceResult) -> Unit,
+    onPrintReceipt: (CardBalanceResult) -> Unit
 ) {
     val context = LocalContext.current
     val systemDark = isSystemInDarkTheme()
@@ -70,6 +72,7 @@ fun MainScreen(
 
     var activeTab by remember { mutableStateOf("chip") }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showSupportedCards by remember { mutableStateOf(false) }
     var editingTerminalId by remember { mutableStateOf<String?>(null) }
     var editingTerminalName by remember { mutableStateOf("") }
 
@@ -180,7 +183,9 @@ fun MainScreen(
                         },
                         onCopyReceipt = {
                             copyReceipt(context, currentCard)
-                        }
+                        },
+                        onExportPdf = { card -> onExportPdf(card) },
+                        onPrintReceipt = { card -> onPrintReceipt(card) }
                     )
                 }
 
@@ -244,6 +249,7 @@ fun MainScreen(
                                 borderColor = borderColor,
                                 textColor = textColor,
                                 textSubtleColor = textSubtleColor,
+                                showTransactionColors = settings.showTransactionColors,
                                 onEditLocation = { tid, curName ->
                                     editingTerminalId = tid
                                     editingTerminalName = curName
@@ -402,6 +408,27 @@ fun MainScreen(
         )
     }
 
+    if (showSupportedCards) {
+        AlertDialog(
+            onDismissRequest = { showSupportedCards = false },
+            title = { Text("Kartu yang Didukung", fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SupportedCardRow("e-Money Mandiri", "Saldo + riwayat")
+                    SupportedCardRow("Flazz BCA", "Saldo + riwayat")
+                    SupportedCardRow("Brizzi BRI", "Saldo + riwayat")
+                    SupportedCardRow("TapCash BNI", "Saldo + riwayat")
+                    SupportedCardRow("KMT Commuter Line", "Saldo + riwayat")
+                    SupportedCardRow("JakCard / JakLingko", "Saldo")
+                    SupportedCardRow("MegaCash", "Saldo")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSupportedCards = false }) { Text("Tutup") }
+            }
+        )
+    }
+
     // Settings Dialog
     if (showSettingsDialog) {
         AlertDialog(
@@ -491,6 +518,13 @@ fun MainScreen(
                         )
                     }
 
+                    SettingSwitch("Ucapkan nominal", "Bacakan saldo setelah kartu terbaca", settings.speakAmount) {
+                        onSettingsChanged(settings.copy(speakAmount = it))
+                    }
+                    SettingSwitch("Warna transaksi", "Bedakan top up dan pembayaran", settings.showTransactionColors) {
+                        onSettingsChanged(settings.copy(showTransactionColors = it))
+                    }
+
                     // Theme Selection
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Tema Tampilan", fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -514,6 +548,16 @@ fun MainScreen(
                     }
 
                     HorizontalDivider(modifier = Modifier.fillMaxWidth())
+
+                    OutlinedButton(
+                        onClick = {
+                            showSettingsDialog = false
+                            showSupportedCards = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Kartu yang Didukung", fontWeight = FontWeight.Bold)
+                    }
 
                     // Clear All Data
                     Button(
@@ -698,7 +742,9 @@ fun BalanceWidget(
     textSubtleColor: Color,
     onToggleHideBalance: () -> Unit,
     onShareReceipt: () -> Unit,
-    onCopyReceipt: () -> Unit
+    onCopyReceipt: () -> Unit,
+    onExportPdf: (CardBalanceResult) -> Unit,
+    onPrintReceipt: (CardBalanceResult) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -779,6 +825,18 @@ fun BalanceWidget(
                     Text("Salin", color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Black)
                 }
             }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { currentCard?.let(onExportPdf) },
+                enabled = currentCard != null,
+                modifier = Modifier.weight(1f)
+            ) { Text("Ekspor PDF", fontWeight = FontWeight.Black) }
+            OutlinedButton(
+                onClick = { currentCard?.let(onPrintReceipt) },
+                enabled = currentCard != null,
+                modifier = Modifier.weight(1f)
+            ) { Text("Cetak", fontWeight = FontWeight.Black) }
         }
     }
 }
@@ -862,6 +920,7 @@ fun HistoryGroupWidget(
     borderColor: Color,
     textColor: Color,
     textSubtleColor: Color,
+    showTransactionColors: Boolean,
     onEditLocation: (String, String) -> Unit
 ) {
     Column(
@@ -890,7 +949,9 @@ fun HistoryGroupWidget(
                 }
 
                 val isTopUp = tx.type == "Top up"
-                val typeColor = if (isTopUp) NeoColors.Green else NeoColors.Red
+                val typeColor = if (showTransactionColors) {
+                    if (isTopUp) NeoColors.Green else NeoColors.Red
+                } else textColor
 
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -1095,6 +1156,33 @@ fun EmptyTray(
             fontSize = 12.sp,
             textAlign = TextAlign.Center
         )
+    }
+}
+
+@Composable
+private fun SettingSwitch(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun SupportedCardRow(name: String, capability: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(name, fontWeight = FontWeight.Bold)
+        Text(capability, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

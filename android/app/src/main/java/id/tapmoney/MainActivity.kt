@@ -1,8 +1,11 @@
 package id.tapmoney
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
+import android.bluetooth.BluetoothAdapter
 import android.media.ToneGenerator
+import android.speech.tts.TextToSpeech
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.os.Build
@@ -21,6 +24,8 @@ import id.tapmoney.model.StoredCard
 import id.tapmoney.model.UserSettings
 import id.tapmoney.nfc.NfcEngine
 import id.tapmoney.ui.MainScreen
+import id.tapmoney.util.BluetoothPrinter
+import id.tapmoney.util.ReceiptExporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -30,6 +35,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     private var nfcAdapter: NfcAdapter? = null
     private lateinit var db: CardDatabase
     private var toneGenerator: ToneGenerator? = null
+    private var textToSpeech: TextToSpeech? = null
 
     private var currentCardState = mutableStateOf<CardBalanceResult?>(null)
     private var savedCardsState = mutableStateOf<List<StoredCard>>(emptyList())
@@ -47,6 +53,9 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         try {
             toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90)
         } catch (ignored: Exception) {}
+        textToSpeech = TextToSpeech(this) { status ->
+            if (status == TextToSpeech.SUCCESS) textToSpeech?.language = java.util.Locale("id", "ID")
+        }
 
         loadSettings()
         loadData()
@@ -96,6 +105,26 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                         history = saved.history,
                         timestamp = saved.timestamp
                     )
+                },
+                onExportPdf = { card ->
+                    val uri = ReceiptExporter.createPdf(this, card)
+                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                        type = "application/pdf"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }, "Bagikan PDF"))
+                },
+                onPrintReceipt = { card ->
+                    val adapter = BluetoothAdapter.getDefaultAdapter()
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        val result = BluetoothPrinter.printPaired(adapter, card)
+                        withContext(Dispatchers.Main) {
+                            statusMessageState.value = result.fold(
+                                { "Struk terkirim ke $it" },
+                                { "Cetak gagal: ${it.message ?: "printer tidak tersedia"}" }
+                            )
+                        }
+                    }
                 }
             )
         }
@@ -116,6 +145,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         super.onDestroy()
         try {
             toneGenerator?.release()
+            textToSpeech?.stop()
+            textToSpeech?.shutdown()
         } catch (ignored: Exception) {}
     }
 
@@ -165,6 +196,9 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             withContext(Dispatchers.Main) {
                 if (result != null) {
                     triggerHapticAndSound()
+                    if (settingsState.value.speakAmount) {
+                        textToSpeech?.speak("Saldo ${result.balance} rupiah", TextToSpeech.QUEUE_FLUSH, null, "balance")
+                    }
                     if (settingsState.value.autoSaveHistory) db.saveCard(result)
                     currentCardState.value = result
                     statusMessageState.value = "Berhasil membaca: ${result.cardType}"
@@ -217,6 +251,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         val mask = sp.getBoolean("mask_card_number", true)
         val autoSave = sp.getBoolean("auto_save_history", true)
         val hideBal = sp.getBoolean("hide_balance", false)
+        val speakAmount = sp.getBoolean("speak_amount", false)
+        val showTransactionColors = sp.getBoolean("transaction_colors", true)
         val themeVal = sp.getString("theme", "system")
         val dark = when (themeVal) {
             "dark" -> true
@@ -229,6 +265,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             maskCardNumber = mask,
             autoSaveHistory = autoSave,
             hideBalance = hideBal,
+            speakAmount = speakAmount,
+            showTransactionColors = showTransactionColors,
             darkTheme = dark
         )
     }
@@ -242,6 +280,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             putBoolean("mask_card_number", newSettings.maskCardNumber)
             putBoolean("auto_save_history", newSettings.autoSaveHistory)
             putBoolean("hide_balance", newSettings.hideBalance)
+            putBoolean("speak_amount", newSettings.speakAmount)
+            putBoolean("transaction_colors", newSettings.showTransactionColors)
             val themeStr = when (newSettings.darkTheme) {
                 true -> "dark"
                 false -> "light"

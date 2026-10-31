@@ -46,5 +46,7 @@ data class UserSettings(
     val maskCardNumber: Boolean = true,
     val autoSaveHistory: Boolean = true,
     val hideBalance: Boolean = false,
+    val speakAmount: Boolean = false,
+    val showTransactionColors: Boolean = true,
     val darkTheme: Boolean? = null
 )
