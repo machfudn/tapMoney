@@ -28,7 +28,9 @@ data class CardBalanceResult(
     val balance: Long,
     val lastAmount: Long = 0,
     val history: List<CardTransactionItem> = emptyList(),
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val balanceKnown: Boolean = true,
+    val debugLog: String = ""
 )
 
 data class StoredCard(
