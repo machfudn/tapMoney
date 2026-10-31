@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">TapMoney Info</string>
-    <string name="title_activity_main">TapMoney Info</string>
+    <string name="app_name">TapMoney</string>
+    <string name="title_activity_main">TapMoney</string>
     <string name="package_name">id.tapmoney</string>
     <string name="custom_url_scheme">id.tapmoney</string>
 </resources>

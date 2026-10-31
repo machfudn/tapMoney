@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Card Hard Shadow -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M39.75,33.75h32a8,8 0 0,1 8,8v28a8,8 0 0,1 -8,8h-32a8,8 0 0,1 -8,-8v-28a8,8 0 0,1 8,-8z" />
+    <!-- Card Body & Border -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:strokeColor="#000000"
+        android:strokeWidth="2.5"
+        android:strokeLineJoin="round"
+        android:pathData="M36.25,30.25h32a8,8 0 0,1 8,8v28a8,8 0 0,1 -8,8h-32a8,8 0 0,1 -8,-8v-28a8,8 0 0,1 8,-8z" />
+    <!-- Letter T -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M32.25,39.25h16.5v7h-5v19h-6.5v-19h-5z" />
+    <!-- Letter M -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M50.75,39.25h6l4.75,12 4.75,-12h6v26h-5.5v-17.5l-5.25,11 -5.25,-11v17.5h-5.5z" />
+</vector>
