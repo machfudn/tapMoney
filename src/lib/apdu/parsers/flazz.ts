@@ -3,10 +3,10 @@ import { generateCardNumber } from '../card-formatter';
 import { parseFlazzHistory } from './history';
 
 // Parse BCA Flazz Gen 1 and Gen 2 balance payload
-export function parseFlazzPayload(rawBytes: number[], uidHex: string): CardBalanceResult {
-  let balance = 0;
+export function parseFlazzPayload(rawBytes: number[], uidHex: string, cardNumOverride?: string, balanceOverride?: number): CardBalanceResult {
+  let balance = typeof balanceOverride === 'number' ? balanceOverride : 0;
 
-  if (rawBytes.length >= 4) {
+  if (typeof balanceOverride !== 'number' && rawBytes.length >= 4) {
     balance = (
       ((rawBytes[0] & 0xff) << 24) |
       ((rawBytes[1] & 0xff) << 16) |
@@ -28,8 +28,11 @@ export function parseFlazzPayload(rawBytes: number[], uidHex: string): CardBalan
     }
   }
 
-  // Format 16-digit card number with BCA Flazz prefix
-  const cardNumber = generateCardNumber('1809', uidHex);
+  // Use real card number extracted from chip if available
+  const rawNum = cardNumOverride?.replace(/[^0-9]/g, '') || '';
+  const cardNumber = rawNum.length >= 16
+    ? rawNum.slice(0, 16).replace(/(\d{4})(?=\d)/g, '$1 ')
+    : generateCardNumber('1809', uidHex);
 
   return {
     cardType: 'BCA Flazz',

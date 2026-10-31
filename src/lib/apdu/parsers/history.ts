@@ -15,22 +15,25 @@ export function parseEmoneyHistory(rawRecords: number[][]): CardTransactionItem[
   return rawRecords.flatMap(record => {
     if (record.length < 24) return [];
     const date = new Date(Date.UTC(2000 + record[0], record[1] - 1, record[2], record[3], record[4], record[5]));
-    const code = le32(record, 10);
+    const code = ((record[10] << 24) | (record[11] << 16) | (record[12] << 8) | record[13]) >>> 0;
     const amount = le32(record, 14);
     const balance = le32(record, 18);
     if (!Number.isFinite(date.getTime()) || (code === 0 && amount === 0 && balance === 0)) return [];
-    return [{ type: code === 288 ? 'Payment' : code === 256 || code === 336 ? 'Top up' : 'Unknown', amount, balance, ...dateParts(date) }];
+    return [{ type: (code === 256 || code === 336) ? 'Top up' : 'Payment', amount, balance, ...dateParts(date) }];
   });
 }
 
 export function parseTapcashHistory(rawRecords: number[][]): CardTransactionItem[] {
   return rawRecords.flatMap(record => {
     if (record.length < 16) return [];
-    const timestamp = be24(record, 0) + 788893200;
+    const typeCode = record[0];
+    const amount = (((record[1] & 0x7f) << 16) | ((record[2] & 0xff) << 8) | (record[3] & 0xff)) >>> 0;
+    const rawTs = (((record[4] & 0xff) << 24) | ((record[5] & 0xff) << 16) | ((record[6] & 0xff) << 8) | (record[7] & 0xff)) >>> 0;
+    const timestamp = rawTs + 788893200;
     const date = new Date(timestamp * 1000);
-    const amount = be24(record, 1);
     if (!Number.isFinite(date.getTime()) || amount === 0) return [];
-    return [{ type: 'Payment', amount, ...dateParts(date) }];
+    const type = typeCode === 2 ? 'Top up' : 'Payment';
+    return [{ type, amount, ...dateParts(date) }];
   });
 }
 
@@ -42,10 +45,14 @@ export function parseBrizziHistory(hexRecords: string[]): CardTransactionItem[] 
     const day = Number.parseInt(record.slice(36, 38), 16);
     const hour = Number.parseInt(record.slice(38, 40), 16);
     const minute = Number.parseInt(record.slice(40, 42), 16);
-    const amount = Number.parseInt(record.slice(46, 52), 16);
+    const typeCode = record.slice(44, 46);
+    const rawAmtHex = record.slice(46, 52);
+    const revAmtHex = rawAmtHex.slice(4, 6) + rawAmtHex.slice(2, 4) + rawAmtHex.slice(0, 2);
+    const amount = Number.parseInt(revAmtHex, 16) || Number.parseInt(rawAmtHex, 16);
     const date = new Date(Date.UTC(2000 + yy, month - 1, day, hour, minute));
     if (!Number.isFinite(date.getTime()) || amount === 0) return [];
-    return [{ type: 'Payment', amount, ...dateParts(date) }];
+    const type = (typeCode === '02' || typeCode === '20') ? 'Top up' : 'Payment';
+    return [{ type, amount, ...dateParts(date) }];
   });
 }
 

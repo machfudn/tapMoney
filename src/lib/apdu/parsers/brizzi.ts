@@ -3,20 +3,21 @@ import { generateCardNumber } from '../card-formatter';
 import { parseBrizziHistory } from './history';
 
 // Parse BRI Brizzi DESFire balance payload
-export function parseBrizziPayload(rawBytes: number[], uidHex: string): CardBalanceResult {
+export function parseBrizziPayload(rawBytes: number[], uidHex: string, cardNumOverride?: string): CardBalanceResult {
   let balance = 0;
 
-  // DESFire Value file returns 4 bytes signed integer
+  // DESFire Value file returns 4 bytes signed integer (little-endian)
   if (rawBytes.length >= 4) {
-    // DESFire typically uses little-endian byte order
-    balance = (
-      ((rawBytes[3] & 0xff) << 24) |
-      ((rawBytes[2] & 0xff) << 16) |
+    const leBalance = (
+      (rawBytes[0] & 0xff) |
       ((rawBytes[1] & 0xff) << 8) |
-      (rawBytes[0] & 0xff)
+      ((rawBytes[2] & 0xff) << 16) |
+      ((rawBytes[3] & 0xff) << 24)
     ) >>> 0;
 
-    if (balance > 20_000_000) {
+    if (leBalance <= 20_000_000) {
+      balance = leBalance;
+    } else {
       const beBalance = (
         ((rawBytes[0] & 0xff) << 24) |
         ((rawBytes[1] & 0xff) << 16) |
@@ -29,8 +30,11 @@ export function parseBrizziPayload(rawBytes: number[], uidHex: string): CardBala
     }
   }
 
-  // Format 16-digit card number with BRI Brizzi prefix
-  const cardNumber = generateCardNumber('5018', uidHex);
+  // Use real card number from chip file 0 if available
+  const rawNum = cardNumOverride?.replace(/[^0-9]/g, '') || '';
+  const cardNumber = rawNum.length >= 16
+    ? rawNum.slice(0, 16).replace(/(\d{4})(?=\d)/g, '$1 ')
+    : generateCardNumber('5018', uidHex);
 
   return {
     cardType: 'BRI Brizzi',

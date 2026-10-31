@@ -115,7 +115,7 @@ public class IsoDepNfcPlugin extends Plugin {
             return;
         }
 
-        final Integer timeout = call.getInt("timeout", 4000);
+        final Integer timeout = call.getInt("timeout", 10000);
         final byte[] apduBytes;
         try {
             apduBytes = jsArrayToBytes(dataArray);
@@ -194,12 +194,9 @@ public class IsoDepNfcPlugin extends Plugin {
                     NfcAdapter.FLAG_READER_NFC_V |
                     NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS;
 
-        Bundle extras = new Bundle();
-        extras.putInt(NfcAdapter.EXTRA_READER_PRESENCE_CHECK_DELAY, 100);
-
         activity.runOnUiThread(() -> {
             try {
-                adapter.enableReaderMode(activity, readerCallback, flags, extras);
+                adapter.enableReaderMode(activity, readerCallback, flags, null);
             } catch (IllegalStateException e) {
                 Log.w(TAG, "Gagal mengaktifkan reader mode", e);
             }

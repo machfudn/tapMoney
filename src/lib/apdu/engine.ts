@@ -17,12 +17,30 @@ import { AID_MEGACASH, parseMegaCashPayload } from './parsers/megacash';
 import { generateCardNumber } from './card-formatter';
 import { readBrizziHistory, readEmoneyHistory, readFlazzHistory, readTapcashHistory } from './reader';
 
-const AID_EMONEY = 'A000000003000000';
-const AID_FLAZZ = 'A0000000030000';
-const AID_FLAZZ_GEN2 = 'D2760000850101';
-const AID_BRIZZI = '0000030080000000';
-const AID_TAPCASH = 'A000000003000001';
-const AID_TAPCASH_ALT = '315041592E5359532E4444463031'; // 1PAY.SYS.DDF01
+// Verified AID & Command definitions (eSaldo Info parity)
+// Mandiri e-Money DF: 00 A4 04 00 08 00 00 00 00 00 00 00 01
+const APDU_SELECT_EMONEY = [0x00, 0xa4, 0x04, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01];
+const APDU_EMONEY_NUMBER = [0x00, 0xb3, 0x00, 0x00, 0x3f];
+const APDU_EMONEY_BALANCE = [0x00, 0xb5, 0x00, 0x00, 0x0a];
+
+// BCA Flazz DF (Gen 1 & Gen 2)
+const APDU_SELECT_FLAZZ_GEN1 = [0x00, 0xa4, 0x04, 0x00, 0x0b, 0xa0, 0x00, 0x00, 0x00, 0x18, 0x0f, 0x00, 0x00, 0x01, 0x80, 0x01];
+const APDU_SELECT_FLAZZ_GEN2 = [0x00, 0xa4, 0x04, 0x00, 0x07, 0xd2, 0x76, 0x00, 0x00, 0x85, 0x01, 0x01];
+const APDU_FLAZZ_READ_REC = [0x00, 0xb2, 0x01, 0x0c, 0x00];
+const APDU_FLAZZ_BALANCE = [0x00, 0xb0, 0x00, 0x00, 0x04];
+
+// BRI Brizzi DESFire Select App & Read commands
+const APDU_SELECT_BRIZZI = [0x90, 0x5a, 0x00, 0x00, 0x03, 0x01, 0x00, 0x00, 0x00];
+const APDU_BRIZZI_CARD_NUM = [0x90, 0xbd, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x17, 0x00, 0x00, 0x00];
+const APDU_BRIZZI_BALANCE = [0x90, 0x6c, 0x00, 0x00, 0x01, 0x00, 0x00];
+
+// BNI TapCash DF & Read commands
+const APDU_SELECT_TAPCASH_1 = [0x00, 0xa4, 0x04, 0x00, 0x08, 0xa0, 0x00, 0x42, 0x4e, 0x49, 0x10, 0x00, 0x01];
+const APDU_SELECT_TAPCASH_2 = [0x00, 0xa4, 0x04, 0x00, 0x08, 0xa0, 0x00, 0x42, 0x4e, 0x49, 0x99, 0x99, 0x99];
+const APDU_TAPCASH_READ = [0x90, 0x32, 0x03, 0x00, 0x00];
+
+// Bank DKI JakCard DF
+const APDU_SELECT_JAKCARD = [0x00, 0xa4, 0x04, 0x00, 0x09, 0xa0, 0x00, 0x00, 0x00, 0x03, 0x86, 0x98, 0x07, 0x01];
 
 async function transceiveApdu(commandBytes: number[]): Promise<number[] | null> {
   if (!Capacitor.isNativePlatform()) {
@@ -30,17 +48,14 @@ async function transceiveApdu(commandBytes: number[]): Promise<number[] | null> 
   }
 
   try {
-    const res = await Promise.race([
-      IsoDepNfc.transceive({
-        data: commandBytes,
-        timeout: 1500
-      }),
-      new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 1600))
-    ]);
-    return (res as any)?.response || null;
+    const res = await IsoDepNfc.transceive({
+      data: commandBytes,
+      timeout: 3500
+    });
+    return res?.response || null;
   } catch {
     try {
-      const res = await CapacitorNfc.transceive({ data: commandBytes, timeout: 1500 });
+      const res = await CapacitorNfc.transceive({ data: commandBytes, timeout: 3500 });
       return (res as any)?.response || null;
     } catch {
       return null;
@@ -50,11 +65,11 @@ async function transceiveApdu(commandBytes: number[]): Promise<number[] | null> 
 
 export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResult> {
   const tag = event.tag || (event as any);
-  const techTypes = tag.techTypes || [];
+  const techTypes: string[] = tag.techTypes || [];
   const uidHex = tag.id && Array.isArray(tag.id) ? bytesToHex(tag.id) : 'UNKNOWN_UID';
   const cardId = uidHex === 'UNKNOWN_UID' ? undefined : uidHex;
 
-  // Check FeliCa (KMT)
+  // 1. Check FeliCa (KMT Commuter Line)
   if (techTypes.some((t: string) => t.includes('NfcF'))) {
     try {
       const felicaReadCmd = [0x10, 0x06, ...((tag.id || []).slice(0, 8)), 0x01, 0x0f, 0x22, 0x01, 0x80, 0x00];
@@ -68,107 +83,173 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
     return parseKmtPayload(new Array(16).fill(0), uidHex);
   }
 
-  // ISO-DEP (Mandiri, Flazz, Brizzi, TapCash, JakCard)
-  if (techTypes.some((t: string) => t.includes('IsoDep'))) {
+  // 2. ISO-DEP (Mandiri e-Money, BCA Flazz, BRI Brizzi, BNI TapCash, JakCard)
+  if (techTypes.some((t: string) => t.includes('IsoDep') || t.includes('NfcA'))) {
     try {
-      // 1. Try Mandiri e-Money
-      const respEmoney = await transceiveApdu(buildSelectAidApdu(AID_EMONEY));
-      if (respEmoney) {
-        const parsed = parseApduResponse(respEmoney);
-        if (parsed.isSuccess) {
-          const balanceResp = await transceiveApdu([0x00, 0xb5, 0x00, 0x00, 0x0a]);
-          if (balanceResp) {
-            const balanceParsed = parseApduResponse(balanceResp);
-            const card = parseEmoneyPayload(balanceParsed.data, uidHex);
+      // --- Probing Step 1: Mandiri e-Money ---
+      const respEmoney = await transceiveApdu(APDU_SELECT_EMONEY);
+      if (respEmoney && parseApduResponse(respEmoney).isSuccess) {
+        // Read real card number from chip record
+        let realCardNumber: string | undefined;
+        const respNum = await transceiveApdu(APDU_EMONEY_NUMBER);
+        if (respNum && respNum.length >= 8) {
+          realCardNumber = bytesToHex(respNum.slice(0, 8));
+        }
+
+        // Read live balance
+        const balanceResp = await transceiveApdu(APDU_EMONEY_BALANCE);
+        if (balanceResp) {
+          const balanceParsed = parseApduResponse(balanceResp);
+          const card = parseEmoneyPayload(balanceParsed.data, uidHex, realCardNumber);
+          try {
             card.history = await readEmoneyHistory();
-            return card;
+          } catch {
+            card.history = [];
           }
+          return card;
         }
       }
 
-      // 2. Try BCA Flazz
-      let respFlazz = await transceiveApdu(buildSelectAidApdu(AID_FLAZZ));
+      // --- Probing Step 2: BCA Flazz ---
+      let respFlazz = await transceiveApdu(APDU_SELECT_FLAZZ_GEN1);
       if (!respFlazz || !parseApduResponse(respFlazz).isSuccess) {
-        respFlazz = await transceiveApdu(buildSelectAidApdu(AID_FLAZZ_GEN2));
+        respFlazz = await transceiveApdu(APDU_SELECT_FLAZZ_GEN2);
       }
-      if (respFlazz) {
-        const parsed = parseApduResponse(respFlazz);
-        if (parsed.isSuccess) {
-          const balanceResp = await transceiveApdu(buildReadBinaryApdu(0, 4));
-          if (balanceResp) {
-            const balanceParsed = parseApduResponse(balanceResp);
-            const card = parseFlazzPayload(balanceParsed.data, uidHex);
-            card.history = await readFlazzHistory();
-            return card;
+      if (respFlazz && parseApduResponse(respFlazz).isSuccess) {
+        let realCardNumber: string | undefined;
+        let liveBalance: number | undefined;
+
+        // Try reading Track 2 record for real PAN
+        const recResp = await transceiveApdu(APDU_FLAZZ_READ_REC);
+        if (recResp && recResp.length > 2) {
+          const ascii = String.fromCharCode(...recResp.filter(b => b >= 32 && b <= 126));
+          const semiIdx = ascii.indexOf(';');
+          const eqIdx = ascii.indexOf('=');
+          if (semiIdx !== -1 && eqIdx !== -1 && eqIdx > semiIdx) {
+            realCardNumber = ascii.substring(semiIdx + 1, eqIdx);
           }
         }
+
+        // Try reading balance
+        const balResp = await transceiveApdu(APDU_FLAZZ_BALANCE);
+        if (balResp && balResp.length >= 4) {
+          const balParsed = parseApduResponse(balResp);
+          if (balParsed.data.length >= 3) {
+            // 24-bit big endian integer
+            liveBalance = ((balParsed.data[0] << 16) | (balParsed.data[1] << 8) | balParsed.data[2]) >>> 0;
+          }
+        }
+
+        const card = parseFlazzPayload(balResp ? parseApduResponse(balResp).data : [], uidHex, realCardNumber, liveBalance);
+        try {
+          card.history = await readFlazzHistory();
+        } catch {
+          card.history = [];
+        }
+        return card;
       }
 
-      // 3. Try BRI Brizzi
-      const respBrizzi = await transceiveApdu(buildSelectAidApdu(AID_BRIZZI));
-      if (respBrizzi) {
-        const parsed = parseApduResponse(respBrizzi);
-        if (parsed.isSuccess) {
-          const balanceResp = await transceiveApdu([0x90, 0x6c, 0x00, 0x00, 0x01, 0x00, 0x00]);
-          if (balanceResp) {
-            const balanceParsed = parseApduResponse(balanceResp);
-            const card = parseBrizziPayload(balanceParsed.data, uidHex);
+      // --- Probing Step 3: BRI Brizzi (DESFire) ---
+      const respBrizzi = await transceiveApdu(APDU_SELECT_BRIZZI);
+      if (respBrizzi && parseApduResponse(respBrizzi).isSuccess) {
+        let realCardNumber: string | undefined;
+
+        // Read File 0 for real 16-digit PAN
+        const cardNumResp = await transceiveApdu(APDU_BRIZZI_CARD_NUM);
+        if (cardNumResp && cardNumResp.length >= 11) {
+          const hex = bytesToHex(cardNumResp);
+          if (hex.length >= 22) {
+            realCardNumber = hex.substring(6, 22);
+          }
+        }
+
+        // Get Value for File 0 (balance)
+        const balanceResp = await transceiveApdu(APDU_BRIZZI_BALANCE);
+        if (balanceResp) {
+          const balanceParsed = parseApduResponse(balanceResp);
+          const card = parseBrizziPayload(balanceParsed.data, uidHex, realCardNumber);
+          try {
             card.history = await readBrizziHistory();
-            return card;
+          } catch {
+            card.history = [];
           }
+          return card;
         }
       }
 
-      // 4. Try BNI TapCash
-      let respTapcash = await transceiveApdu(buildSelectAidApdu(AID_TAPCASH));
+      // --- Probing Step 4: BNI TapCash ---
+      let respTapcash = await transceiveApdu(APDU_SELECT_TAPCASH_1);
       if (!respTapcash || !parseApduResponse(respTapcash).isSuccess) {
-        respTapcash = await transceiveApdu(buildSelectAidApdu(AID_TAPCASH_ALT));
+        respTapcash = await transceiveApdu(APDU_SELECT_TAPCASH_2);
       }
-      if (respTapcash) {
-        const parsed = parseApduResponse(respTapcash);
-        if (parsed.isSuccess) {
-          const balanceResp = await transceiveApdu(buildReadBinaryApdu(0, 4));
-          if (balanceResp) {
-            const balanceParsed = parseApduResponse(balanceResp);
-            const card = parseTapcashPayload(balanceParsed.data, uidHex);
-            card.history = await readTapcashHistory();
-            return card;
+      if (respTapcash && parseApduResponse(respTapcash).isSuccess) {
+        // Read Tapcash multi-record (Balance at bytes 2..4, Card Number at bytes 8..15)
+        const readResp = await transceiveApdu(APDU_TAPCASH_READ);
+        if (readResp && readResp.length >= 16) {
+          let balance = ((readResp[2] & 0xff) << 16) | ((readResp[3] & 0xff) << 8) | (readResp[4] & 0xff);
+          if ((readResp[2] & 0x80) !== 0) {
+            balance = (balance | 0xff000000) >>> 0;
           }
+          const realCardNumber = bytesToHex(readResp.slice(8, 16));
+          const card = parseTapcashPayload([], uidHex, realCardNumber, balance);
+          try {
+            card.history = await readTapcashHistory();
+          } catch {
+            card.history = [];
+          }
+          return card;
         }
       }
 
-      // 5. Try Bank Mega MegaCash
+      // --- Probing Step 5: Bank Mega MegaCash ---
       const respMegaCash = await transceiveApdu(buildSelectAidApdu(AID_MEGACASH));
-      if (respMegaCash) {
-        const parsed = parseApduResponse(respMegaCash);
-        if (parsed.isSuccess) {
-          const balanceResp = await transceiveApdu(buildReadBinaryApdu(0, 4));
-          if (balanceResp) {
-            const balanceParsed = parseApduResponse(balanceResp);
-            return parseMegaCashPayload(balanceParsed.data, uidHex);
-          }
+      if (respMegaCash && parseApduResponse(respMegaCash).isSuccess) {
+        const balanceResp = await transceiveApdu(buildReadBinaryApdu(0, 4));
+        if (balanceResp) {
+          const balanceParsed = parseApduResponse(balanceResp);
+          return parseMegaCashPayload(balanceParsed.data, uidHex);
         }
+      }
+
+      // --- Probing Step 6: Bank DKI JakCard ---
+      const respJakCard = await transceiveApdu(APDU_SELECT_JAKCARD);
+      if (respJakCard && parseApduResponse(respJakCard).isSuccess) {
+        const balanceResp = await transceiveApdu(buildReadBinaryApdu(0, 4));
+        const balance = balanceResp && balanceResp.length >= 4
+          ? ((balanceResp[0] << 24) | (balanceResp[1] << 16) | (balanceResp[2] << 8) | balanceResp[3]) >>> 0
+          : 0;
+        return {
+          cardType: 'Bank DKI JakCard',
+          issuer: 'DKI',
+          cardNumber: generateCardNumber('3101', uidHex),
+          cardId,
+          balance: balance <= 20_000_000 ? balance : 0,
+          lastAmount: 0,
+          timestamp: new Date().toISOString()
+        };
       }
     } catch {
-      // transceive failed or not supported by driver
+      // APDU probe cycle failed
     }
 
-    // Default ISO-DEP fallback when no issuer AID recognized
+    // Default ISO-DEP fallback when no issuer recognized
     return {
       cardType: 'Kartu Elektronik (ISO-DEP)',
       issuer: 'Unknown',
       cardNumber: generateCardNumber('8888', uidHex),
+      cardId,
       balance: 0,
       lastAmount: 0,
       timestamp: new Date().toISOString()
     };
   }
 
-  // Fallback for MifareClassic (JakCard) or others
+  // Fallback for unknown NFC card types
   return {
-    cardType: 'Bank DKI JakCard',
-    issuer: 'DKI',
-    cardNumber: generateCardNumber('3101', uidHex),
+    cardType: 'Kartu Elektronik (NFC)',
+    issuer: 'Unknown',
+    cardNumber: generateCardNumber('8888', uidHex),
+    cardId,
     balance: 0,
     lastAmount: 0,
     timestamp: new Date().toISOString()

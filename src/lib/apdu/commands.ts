@@ -65,20 +65,21 @@ export function buildReadRecordApdu(recordNum: number, sfi: number, length = 0):
 
 // Parse raw APDU response into data and status words
 export function parseApduResponse(response: number[]): ApduResponse {
-  if (response.length < 2) {
+  if (!response || response.length < 2) {
     return {
-      data: response,
+      data: response || [],
       sw1: 0x00,
       sw2: 0x00,
       isSuccess: false,
-      hex: bytesToHex(response)
+      hex: bytesToHex(response || [])
     };
   }
 
   const sw1 = response[response.length - 2];
   const sw2 = response[response.length - 1];
   const data = response.slice(0, response.length - 2);
-  const isSuccess = sw1 === 0x90 && sw2 === 0x00;
+  // Match eSaldo Info d.c logic: 0x9000 (ISO-7816) or 0x9100 (DESFire)
+  const isSuccess = (sw1 === 0x90 || sw1 === 0x91) && sw2 === 0x00;
 
   return {
     data,

@@ -180,6 +180,11 @@
       statusMessage = 'Gagal memproses data kartu';
     } finally {
       processingScan = false;
+      try {
+        await IsoDepNfc.closeTag();
+      } catch {
+        // ignore
+      }
     }
   }
 
