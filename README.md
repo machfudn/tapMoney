@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="android/app/src/main/res/drawable/ic_launcher.png" alt="Logo Tap Money Info" width="96" height="96" />
+<img src="android/app/src/main/res/drawable/ic_launcher.png" alt="Logo Tap Money" width="96" height="96" />
 
-# Tap Money Info
+# Tap Money
 
 [![Android CI Release](https://github.com/machfudn/tap-money-info/actions/workflows/build-release-apk.yml/badge.svg)](https://github.com/machfudn/tap-money-info/actions/workflows/build-release-apk.yml)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-purple.svg?logo=kotlin)](#)
@@ -36,7 +36,7 @@ Aplikasi Android native murni (100% Kotlin & Jetpack Compose) untuk membaca sald
 
 ## Ringkasan
 
-**Tap Money Info** adalah aplikasi mobile Android native modern yang dikembangkan secara penuh menggunakan bahasa **Kotlin 2.0.21** dan toolkit UI **Jetpack Compose**. Berbeda dari aplikasi tag scanner standar yang hanya membaca identitas UID kartu, aplikasi ini melakukan komunikasi duplex langsung ke mikrokontroler chip fisik menggunakan protokol **ISO-DEP (ISO 7816-4)** dan **FeliCa (JIS 6319-4)** untuk mengekstrak saldo riil serta log transaksi terakhir yang tersimpan di dalam kartu uang elektronik perbankan Indonesia.
+**Tap Money** adalah aplikasi mobile Android native modern yang dikembangkan secara penuh menggunakan bahasa **Kotlin 2.0.21** dan toolkit UI **Jetpack Compose**. Berbeda dari aplikasi tag scanner standar yang hanya membaca identitas UID kartu, aplikasi ini melakukan komunikasi duplex langsung ke mikrokontroler chip fisik menggunakan protokol **ISO-DEP (ISO 7816-4)** dan **FeliCa (JIS 6319-4)** untuk mengekstrak saldo riil serta log transaksi terakhir yang tersimpan di dalam kartu uang elektronik perbankan Indonesia.
 
 Seluruh data hasil pemindaian dan penamaan terminal disimpan secara lokal di perangkat pengguna menggunakan **SQLite database bawaan Android** (`tap_money.db`), memastikan privasi pengguna tetap aman dan aplikasi berfungsi optimal secara offline-first tanpa koneksi internet.
 
@@ -61,17 +61,33 @@ Seluruh data hasil pemindaian dan penamaan terminal disimpan secara lokal di per
 
 ---
 
-## Daftar Kartu yang Didukung
+## Daftar Kartu yang Didukung & Segmentasi
 
+### 1. Perbankan Indonesia (Domestik)
 | Kartu | Penerbit | Protokol NFC | Saldo Riil | Mutasi Transaksi | Deteksi Nomor Kartu (PAN) |
 | :--- | :--- | :--- | :---: | :---: | :---: |
 | **Mandiri e-Money** | Bank Mandiri | ISO-DEP (ISO 7816-4) | Ya | Ya (Record 1–10) | Ya (`6032...`) |
-| **BCA Flazz (Gen 1 & 2)** | Bank BCA | PBOC / DESFire | Ya | Ya (Binary & DESFire) | Ya (`6013...` / `6019...`) |
-| **BNI TapCash** | Bank BNI | ISO-DEP | Ya | Ya (Epoch 1995) | Ya (`7546...`) |
-| **BRI Brizzi** | Bank BRI | Mifare DESFire | Ya | Ya (BCD Format) | Ya (`5058...`) |
-| **KMT Commuter Line** | PT Kereta Commuter Indonesia | NfcF / FeliCa (0x220F) | Ya | Ya | Ya (`1002...`) |
+| **BCA Flazz (Gen 1 & 2)** | Bank BCA | PBOC / DESFire | Ya | Ya (Gen 2 Log Decode) | Ya (`6013...` / `6019...`) |
+| **BNI TapCash** | Bank BNI | ISO-DEP (CEPAS variant) | Ya | Ya (Epoch 1995) | Ya (`7546...`) |
+| **BRI Brizzi** | Bank BRI | Mifare DESFire | Ya | Ya (Multi-frame Chaining) | Ya (`5058...`) |
 | **Bank DKI JakCard** | Bank DKI | ISO-DEP | Ya | Ya | Ya |
 | **Bank Mega MegaCash** | Bank Mega | ISO-DEP | Ya | Parsial | Ya (`6020...`) |
+
+### 2. Transit Domestik
+| Kartu | Penerbit | Protokol NFC | Saldo Riil | Mutasi Transaksi | Pemetaan Stasiun |
+| :--- | :--- | :--- | :---: | :---: | :---: |
+| **KMT Commuter Line** | PT Kereta Commuter Indonesia | NfcF / FeliCa (0x90B7) | Ya | Ya (Epoch Jakarta 2000) | Ya (Katalog Stasiun Jabodetabek) |
+| **MRT Jakarta (MRTJ)** | PT MRT Jakarta | NfcF / FeliCa (0x9373) | Ya | Ya (Transaksi Terakhir) | Ya |
+
+### 3. Transit Regional / Internasional (Kategori A - Terbuka Penuh)
+| Kartu | Negara / Wilayah | Protokol NFC | Saldo Riil | Mutasi Transaksi |
+| :--- | :--- | :--- | :---: | :---: |
+| **CEPAS (EZ-Link / NETS FlashPay)** | Singapura | ISO-DEP (CLA 0x90) | Ya (Cents SGD) | Ya |
+| **Suica / PASMO / ICOCA** | Jepang | FeliCa (Service 0x090F) | Ya (Yen JPY) | Ya (20 blok riwayat) |
+| **Rakuten Edy** | Jepang | FeliCa (Service 0x1317 & 0x110B) | Ya (Yen JPY) | Ya |
+| **T-Money & Cashbee** | Korea Selatan | ISO-DEP (AID D4100000030001 / KSX6924) | Ya (KRW Won) | Ya |
+| **China Transit (T-Union / PBOC)** | Tiongkok | PBOC 2.0/3.0 (AID A000000632010105) | Ya (Cents CNY) | Ya |
+| **Sydney Opal** | Australia | MIFARE DESFire EV1 (App 0x314553 File 0x07) | Ya (Cents AUD) | Mode & Status Transit |
 
 ---
 
@@ -195,4 +211,3 @@ apksigner verify --verbose TapMoneyInfo.apk
 **Machfudin**  
 - System Architect & Lead Developer  
 - GitHub: [@machfudn](https://github.com/machfudn)
-

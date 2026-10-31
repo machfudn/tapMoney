@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="android/app/src/main/res/drawable/ic_launcher.png" alt="Tap Money Info Logo" width="96" height="96" />
+<img src="android/app/src/main/res/drawable/ic_launcher.png" alt="Tap Money Logo" width="96" height="96" />
 
-# Tap Money Info
+# Tap Money
 
 [![Android CI Release](https://github.com/machfudn/tap-money-info/actions/workflows/build-release-apk.yml/badge.svg)](https://github.com/machfudn/tap-money-info/actions/workflows/build-release-apk.yml)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-purple.svg?logo=kotlin)](#)
@@ -36,7 +36,7 @@ A pure native Android (100% Kotlin & Jetpack Compose) electronic money NFC reade
 
 ## Overview
 
-**Tap Money Info** is a modern, 100% native Android mobile application built using **Kotlin 2.0.21** and **Jetpack Compose**. Unlike simplistic tag scanner apps that merely read serial UID numbers, Tap Money Info establishes direct duplex communication with physical smartcard chips using the **ISO-DEP (ISO 7816-4)** and **FeliCa (JIS 6319-4)** protocols to read real live balances, physical card identifiers (PAN), and transaction logs from Indonesian banking cards.
+**Tap Money** is a modern, 100% native Android mobile application built using **Kotlin 2.0.21** and **Jetpack Compose**. Unlike simplistic tag scanner apps that merely read serial UID numbers, Tap Money establishes direct duplex communication with physical smartcard chips using the **ISO-DEP (ISO 7816-4)** and **FeliCa (JIS 6319-4)** protocols to read real live balances, physical card identifiers (PAN), and transaction logs from Indonesian banking cards.
 
 All data is stored locally in an on-device **SQLite database** (`tap_money.db`), providing zero tracking, full offline-first functionality, and strict data privacy.
 
@@ -61,17 +61,33 @@ All data is stored locally in an on-device **SQLite database** (`tap_money.db`),
 
 ---
 
-## Supported Cards
+## Supported Cards & Segmentation
 
+### 1. Indonesian Banking (Domestic)
 | Card | Issuer | Protocol | Real Balance | Mutation History | Physical Card Number |
 | :--- | :--- | :--- | :---: | :---: | :---: |
 | **Mandiri e-Money** | Bank Mandiri | ISO-DEP (ISO 7816-4) | Yes | Yes (Records 1–10) | Yes (`6032...`) |
-| **BCA Flazz (Gen 1 & 2)** | Bank BCA | PBOC / DESFire | Yes | Yes (Binary & DESFire) | Yes (`6013...` / `6019...`) |
-| **BNI TapCash** | Bank BNI | ISO-DEP | Yes | Yes (1995 Epoch) | Yes (`7546...`) |
-| **BRI Brizzi** | Bank BRI | Mifare DESFire | Yes | Yes (BCD Format) | Yes (`5058...`) |
-| **KMT Commuter Line** | PT Kereta Commuter Indonesia | NfcF / FeliCa (0x220F) | Yes | Yes | Yes (`1002...`) |
+| **BCA Flazz (Gen 1 & 2)** | Bank BCA | PBOC / DESFire | Yes | Yes (Gen 2 Log Decode) | Yes (`6013...` / `6019...`) |
+| **BNI TapCash** | Bank BNI | ISO-DEP (CEPAS variant) | Yes | Yes (1995 Epoch) | Yes (`7546...`) |
+| **BRI Brizzi** | Bank BRI | Mifare DESFire | Yes | Yes (Multi-frame Chaining) | Yes (`5058...`) |
 | **Bank DKI JakCard** | Bank DKI | ISO-DEP | Yes | Yes | Yes |
 | **Bank Mega MegaCash** | Bank Mega | ISO-DEP | Yes | Partial | Yes (`6020...`) |
+
+### 2. Domestic Transit
+| Card | Issuer | Protocol | Real Balance | Mutation History | Station Catalog |
+| :--- | :--- | :--- | :---: | :---: | :---: |
+| **KMT Commuter Line** | PT Kereta Commuter Indonesia | NfcF / FeliCa (0x90B7) | Yes | Yes (Jakarta 2000 Epoch) | Yes (Jabodetabek Stations) |
+| **MRT Jakarta (MRTJ)** | PT MRT Jakarta | NfcF / FeliCa (0x9373) | Yes | Yes (Last Transaction) | Yes |
+
+### 3. Regional / International Transit (Category A - Fully Open)
+| Card | Region | Protocol | Real Balance | Mutation History |
+| :--- | :--- | :--- | :---: | :---: |
+| **CEPAS (EZ-Link / NETS FlashPay)** | Singapore | ISO-DEP (CLA 0x90) | Yes (SGD Cents) | Yes |
+| **Suica / PASMO / ICOCA** | Japan | FeliCa (Service 0x090F) | Yes (JPY Yen) | Yes (20 blocks) |
+| **Rakuten Edy** | Japan | FeliCa (Service 0x1317 & 0x110B) | Yes (JPY Yen) | Yes |
+| **T-Money & Cashbee** | South Korea | ISO-DEP (AID D4100000030001 / KSX6924) | Yes (KRW Won) | Yes |
+| **China Transit (T-Union / PBOC)** | China | PBOC 2.0/3.0 (AID A000000632010105) | Yes (CNY Cents) | Yes |
+| **Sydney Opal** | Australia | MIFARE DESFire EV1 (App 0x314553 File 0x07) | Yes (AUD Cents) | Mode & Transit Status |
 
 ---
 
