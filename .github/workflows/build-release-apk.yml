@@ -116,9 +116,11 @@ jobs:
 
       - name: Align & Sign APK (V1 + V2 + V3)
         run: |
-          UNSIGNED_APK=$(find . -path "*/build/outputs/apk/release/*.apk" ! -name "*aligned*" ! -name "*signed*" | head -n 1)
+          UNSIGNED_APK=$(find . -type f -name "*release*.apk" ! -name "*aligned*" | head -n 1)
           if [ -z "$UNSIGNED_APK" ]; then
-            echo "APK tidak ditemukan di folder build output!"
+            echo "Daftar semua file apk yang ada:"
+            find . -type f -name "*.apk" || true
+            echo "APK release tidak ditemukan di folder build output!"
             exit 1
           fi
 
