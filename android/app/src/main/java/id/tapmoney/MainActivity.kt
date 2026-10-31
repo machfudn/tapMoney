@@ -53,9 +53,11 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         try {
             toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90)
         } catch (ignored: Exception) {}
-        textToSpeech = TextToSpeech(this) { status ->
-            if (status == TextToSpeech.SUCCESS) textToSpeech?.language = java.util.Locale("id", "ID")
-        }
+        try {
+            textToSpeech = TextToSpeech(this) { status ->
+                if (status == TextToSpeech.SUCCESS) textToSpeech?.language = java.util.Locale("id", "ID")
+            }
+        } catch (ignored: Exception) {}
 
         loadSettings()
         loadData()
@@ -192,7 +194,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         }
 
         lifecycleScope.launch(Dispatchers.IO) {
-            val result = NfcEngine.readCard(tag)
+            val result = NfcEngine.readCard(tag, settingsState.value)
             withContext(Dispatchers.Main) {
                 if (result != null) {
                     triggerHapticAndSound()
@@ -235,8 +237,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
     private fun loadData() {
         lifecycleScope.launch(Dispatchers.IO) {
-            val cards = db.getSavedCards()
-            val aliases = db.getLocationAliases()
+            val cards = runCatching { db.getSavedCards() }.getOrDefault(emptyList())
+            val aliases = runCatching { db.getLocationAliases() }.getOrDefault(emptyMap())
             withContext(Dispatchers.Main) {
                 savedCardsState.value = cards
                 locationAliasesState.value = aliases
@@ -253,6 +255,9 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         val hideBal = sp.getBoolean("hide_balance", false)
         val speakAmount = sp.getBoolean("speak_amount", false)
         val showTransactionColors = sp.getBoolean("transaction_colors", true)
+        val scanDomesticBanking = sp.getBoolean("scan_domestic_banking", true)
+        val scanDomesticTransit = sp.getBoolean("scan_domestic_transit", true)
+        val scanRegionalTransit = sp.getBoolean("scan_regional_transit", true)
         val themeVal = sp.getString("theme", "system")
         val dark = when (themeVal) {
             "dark" -> true
@@ -267,6 +272,9 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             hideBalance = hideBal,
             speakAmount = speakAmount,
             showTransactionColors = showTransactionColors,
+            scanDomesticBanking = scanDomesticBanking,
+            scanDomesticTransit = scanDomesticTransit,
+            scanRegionalTransit = scanRegionalTransit,
             darkTheme = dark
         )
     }
@@ -282,6 +290,9 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             putBoolean("hide_balance", newSettings.hideBalance)
             putBoolean("speak_amount", newSettings.speakAmount)
             putBoolean("transaction_colors", newSettings.showTransactionColors)
+            putBoolean("scan_domestic_banking", newSettings.scanDomesticBanking)
+            putBoolean("scan_domestic_transit", newSettings.scanDomesticTransit)
+            putBoolean("scan_regional_transit", newSettings.scanRegionalTransit)
             val themeStr = when (newSettings.darkTheme) {
                 true -> "dark"
                 false -> "light"

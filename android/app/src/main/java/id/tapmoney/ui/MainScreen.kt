@@ -96,7 +96,7 @@ fun MainScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Image(
-                    painter = painterResource(id = R.mipmap.ic_launcher),
+                    painter = painterResource(id = R.drawable.ic_launcher),
                     contentDescription = "TapMoney Logo",
                     modifier = Modifier
                         .size(38.dp)
@@ -393,13 +393,25 @@ fun MainScreen(
             title = { Text("Kartu yang Didukung", fontWeight = FontWeight.Black) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Perbankan Indonesia", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = textSubtleColor)
                     SupportedCardRow("e-Money Mandiri", "Saldo + riwayat")
-                    SupportedCardRow("Flazz BCA", "Saldo + riwayat")
+                    SupportedCardRow("Flazz BCA", "Saldo + riwayat (Gen 2)")
                     SupportedCardRow("Brizzi BRI", "Saldo + riwayat")
                     SupportedCardRow("TapCash BNI", "Saldo + riwayat")
-                    SupportedCardRow("KMT Commuter Line", "Saldo + riwayat")
-                    SupportedCardRow("JakCard / JakLingko", "Saldo")
-                    SupportedCardRow("MegaCash", "Saldo")
+                    SupportedCardRow("JakCard Bank DKI", "Saldo")
+                    SupportedCardRow("MegaCash Bank Mega", "Saldo")
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Transit Domestik", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = textSubtleColor)
+                    SupportedCardRow("KMT Commuter Line", "Saldo + riwayat + nama stasiun")
+                    SupportedCardRow("MRT Jakarta (MRTJ)", "Saldo + transaksi terakhir")
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Transit Regional / Global", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = textSubtleColor)
+                    SupportedCardRow("CEPAS (EZ-Link / NETS)", "Saldo SGD + riwayat")
+                    SupportedCardRow("Suica / PASMO / IC", "Saldo JPY + riwayat")
+                    SupportedCardRow("Rakuten Edy", "Saldo JPY + riwayat")
+                    SupportedCardRow("T-Money & Cashbee", "Saldo KRW")
+                    SupportedCardRow("China T-Union / PBOC", "Saldo CNY")
+                    SupportedCardRow("Sydney Opal", "Saldo AUD")
                 }
             },
             confirmButton = {
@@ -502,6 +514,20 @@ fun MainScreen(
                     }
                     SettingSwitch("Warna transaksi", "Bedakan top up dan pembayaran", settings.showTransactionColors) {
                         onSettingsChanged(settings.copy(showTransactionColors = it))
+                    }
+
+                    // Kategori Pemindaian Kartu
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Kategori Pemindaian", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        SettingSwitch("Perbankan Indonesia", "Mandiri e-Money, Flazz, Brizzi, TapCash, JakCard, MegaCash", settings.scanDomesticBanking) {
+                            onSettingsChanged(settings.copy(scanDomesticBanking = it))
+                        }
+                        SettingSwitch("Transit Domestik", "KMT Commuter Line & MRT Jakarta", settings.scanDomesticTransit) {
+                            onSettingsChanged(settings.copy(scanDomesticTransit = it))
+                        }
+                        SettingSwitch("Transit Regional / Global", "CEPAS Singapura (EZ-Link / NETS) & Suica / IC Jepang", settings.scanRegionalTransit) {
+                            onSettingsChanged(settings.copy(scanRegionalTransit = it))
+                        }
                     }
 
                     // Theme Selection
@@ -616,7 +642,18 @@ fun CardVisualWidget(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(NeoColors.Yellow)
+                    .background(
+                        when (issuer) {
+                            CardIssuer.MRTJ -> Color(0xFF005BAA)
+                            CardIssuer.CEPAS -> Color(0xFF6B2D82)
+                            CardIssuer.SUICA -> Color(0xFF2E7D32)
+                            CardIssuer.EDY -> Color(0xFF000059)
+                            CardIssuer.TMONEY -> Color(0xFFD32F2F)
+                            CardIssuer.CHINA_TRANSIT -> Color(0xFFC62828)
+                            CardIssuer.OPAL -> Color(0xFF0072CE)
+                            else -> NeoColors.Yellow
+                        }
+                    )
             )
         }
 
@@ -648,9 +685,13 @@ fun CardVisualWidget(
                         contentScale = ContentScale.Fit
                     )
                 } else {
+                    val isDarkBg = issuer in listOf(
+                        CardIssuer.MRTJ, CardIssuer.CEPAS, CardIssuer.SUICA,
+                        CardIssuer.EDY, CardIssuer.TMONEY, CardIssuer.CHINA_TRANSIT, CardIssuer.OPAL
+                    )
                     Text(
                         text = currentCard?.cardType ?: "NFC CARD",
-                        color = Color.Black,
+                        color = if (isDarkBg) Color.White else Color.Black,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Black
                     )
