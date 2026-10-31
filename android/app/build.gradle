@@ -4,8 +4,17 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
-def appVersionName = project.hasProperty('versionName') ? project.property('versionName') : (System.getenv("APP_VERSION_NAME") ?: "1.0.0")
-def appVersionCode = project.hasProperty('versionCode') ? project.property('versionCode').toInteger() : (System.getenv("APP_VERSION_CODE") ? System.getenv("APP_VERSION_CODE").toInteger() : 10000)
+def versionPropsFile = file("../version.properties")
+def versionProps = new Properties()
+if (versionPropsFile.canRead()) {
+    versionProps.load(new FileInputStream(versionPropsFile))
+}
+
+def defaultVersionName = versionProps.getProperty("versionName", "1.0.0")
+def defaultVersionCode = versionProps.getProperty("versionCode", "10000").toInteger()
+
+def appVersionName = project.hasProperty('versionName') ? project.property('versionName') : (System.getenv("APP_VERSION_NAME") ?: defaultVersionName)
+def appVersionCode = project.hasProperty('versionCode') ? project.property('versionCode').toInteger() : (System.getenv("APP_VERSION_CODE") ? System.getenv("APP_VERSION_CODE").toInteger() : defaultVersionCode)
 
 android {
     namespace "id.tapmoney"

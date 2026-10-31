@@ -116,7 +116,7 @@ jobs:
 
           VERSION_CODE=$(( (MAJOR * 10000) + (MINOR * 100) + PATCH_NUM ))
           VERSION_NAME="$CLEAN_VERSION"
-          APK_NAME="TapMoneyInfo-v${VERSION_NAME}.apk"
+          APK_NAME="TapMoney-v${VERSION_NAME}.apk"
 
           echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
           echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
@@ -199,7 +199,7 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TapMoneyInfo-v${{ steps.semver.outputs.version_name }}
+          name: TapMoney-v${{ steps.semver.outputs.version_name }}
           path: ${{ env.APK_NAME }}
           if-no-files-found: error
           retention-days: 30
