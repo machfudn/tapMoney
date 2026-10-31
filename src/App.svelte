@@ -39,7 +39,7 @@
     shareOrCopyReceipt,
     printCurrentReceipt
   } from './lib/receipt/receipt';
-  import type { CardBalanceResult, BackendCardDefinition, CardIssuer } from './lib/types';
+  import type { CardBalanceResult, BackendCardDefinition, CardIssuer, CardTransactionItem } from './lib/types';
   import { getCardTheme } from './lib/cards/card-assets';
   import CardVisual from './lib/cards/CardVisual.svelte';
 
@@ -405,6 +405,54 @@
     showToast('Semua data dan kartu tersimpan dibersihkan');
   }
 
+  let locationAliases: Record<string, string> = $state({});
+
+  function loadLocationAliases() {
+    try {
+      const raw = localStorage.getItem('tap_money_location_aliases');
+      if (raw) locationAliases = JSON.parse(raw);
+    } catch {}
+  }
+
+  function handleEditLocation(tid?: string) {
+    if (!tid) return;
+    const currentName = locationAliases[tid] || '';
+    const input = window.prompt(`Masukkan nama lokasi untuk terminal ${tid}:`, currentName);
+    if (input !== null) {
+      locationAliases = { ...locationAliases, [tid]: input.trim() };
+      try {
+        localStorage.setItem('tap_money_location_aliases', JSON.stringify(locationAliases));
+      } catch {}
+      showToast('Nama lokasi disimpan');
+    }
+  }
+
+  function groupTransactionsByDate(items?: CardTransactionItem[]) {
+    if (!items || items.length === 0) return [];
+    const map = new Map<string, CardTransactionItem[]>();
+    for (const tx of items) {
+      const list = map.get(tx.date) || [];
+      list.push(tx);
+      map.set(tx.date, list);
+    }
+    return Array.from(map.entries()).map(([date, txs]) => ({
+      date,
+      displayDate: formatGroupDate(date),
+      transactions: txs
+    }));
+  }
+
+  function formatGroupDate(dateStr: string) {
+    try {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+      }
+    } catch {}
+    return dateStr;
+  }
+
   function handleClearCurrentCard() {
     currentCard = null;
     statusMessage = 'Tempelkan kartu di belakang ponsel';
@@ -429,6 +477,7 @@
       savedCards = [];
     }
 
+    loadLocationAliases();
     await initNfc();
     cardDefinitions = await fetchCardDefinitions();
   });
@@ -615,29 +664,56 @@
     <!-- Tab 1: On-Chip Physical History -->
     {#if activeHistoryTab === 'chip'}
       {#if currentCard?.history && currentCard.history.length > 0}
-        <div class="neo-list-stack">
-          {#each currentCard.history as tx (`${tx.date}-${tx.time}-${tx.amount}-${tx.terminalId || ''}`)}
-            <div class="neo-list-item">
-              <div class="list-item-main">
-                <div class="tx-badge-bar">
-                  <span class="tx-type-badge {tx.type === 'Top up' ? 'badge--pos' : 'badge--neg'}">
-                    {tx.type.toUpperCase()}
-                  </span>
-                  {#if tx.terminalId}
-                    <span class="terminal-id">TID: {tx.terminalId}</span>
+        <div class="neo-history-groups">
+          {#each groupTransactionsByDate(currentCard.history) as group (group.date)}
+            <div class="history-group">
+              <div class="group-date-header">{group.displayDate}</div>
+              <div class="group-items-card">
+                {#each group.transactions as tx, idx (`${tx.date}-${tx.time}-${tx.amount}-${tx.terminalId || ''}-${idx}`)}
+                  {#if idx > 0}
+                    <div class="tx-dashed-divider"></div>
                   {/if}
-                </div>
-                <div class="tx-time-text">
-                  {formatTransactionDate(tx.date)} • {tx.time}
-                </div>
-              </div>
-              <div class="list-item-side">
-                <span class="tx-amount-val {tx.type === 'Top up' ? 'amount--pos' : 'amount--neg'}">
-                  {tx.type === 'Top up' ? '+' : '-'}{formatRupiah(tx.amount)}
-                </span>
-                {#if typeof tx.balance === 'number'}
-                  <span class="tx-rest-balance">Sisa: {formatRupiah(tx.balance)}</span>
-                {/if}
+                  <div class="tx-entry-row">
+                    <div class="tx-entry-top">
+                      <div class="tx-type-meta">
+                        <span class="tx-status-title {tx.type === 'Top up' ? 'tx-type--pos' : 'tx-type--neg'}">
+                          {tx.type === 'Top up' ? '+ Top up' : '- Payment'}
+                        </span>
+                        <span class="tx-timestamp-sub">{tx.time ? tx.time.slice(0, 5) : ''}</span>
+                      </div>
+                      <div class="tx-amount-meta">
+                        <span class="tx-amount-sum {tx.type === 'Top up' ? 'tx-type--pos' : 'tx-type--neg'}">
+                          {formatRupiah(tx.amount)}
+                        </span>
+                        {#if typeof tx.balance === 'number'}
+                          <span class="tx-balance-sub">Saldo Akhir: {formatRupiah(tx.balance)}</span>
+                        {/if}
+                      </div>
+                    </div>
+
+                    <div class="tx-entry-bottom">
+                      <div class="tx-lokasi-info">
+                        <span class="tx-lokasi-label">Lokasi</span>
+                        <span class="tx-lokasi-name">
+                          {locationAliases[tx.terminalId || ''] || tx.terminalId || 'Lokasi Umum'}
+                        </span>
+                      </div>
+                      {#if tx.terminalId}
+                        <button
+                          type="button"
+                          class="tx-edit-btn"
+                          title="Ubah Nama Lokasi"
+                          onclick={() => handleEditLocation(tx.terminalId)}
+                        >
+                          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                          </svg>
+                        </button>
+                      {/if}
+                    </div>
+                  </div>
+                {/each}
               </div>
             </div>
           {/each}
@@ -1299,6 +1375,140 @@
     cursor: pointer;
   }
 
+  /* Grouped On-Chip History View */
+  .neo-history-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .history-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .group-date-header {
+    font-size: 15px;
+    font-weight: 800;
+    color: #0284c7;
+    padding-left: 2px;
+  }
+
+  .group-items-card {
+    background: var(--neo-surface-alt);
+    border: 2px solid var(--neo-border);
+    box-shadow: 3px 3px 0px var(--neo-shadow);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tx-dashed-divider {
+    border-top: 1px dashed var(--neo-border);
+    opacity: 0.35;
+    margin: 12px 0;
+  }
+
+  .tx-entry-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .tx-entry-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .tx-type-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .tx-status-title {
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  .tx-type--neg {
+    color: #e53935;
+  }
+
+  .tx-type--pos {
+    color: #16a34a;
+  }
+
+  .tx-timestamp-sub {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--neo-text-subtle);
+  }
+
+  .tx-amount-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+  }
+
+  .tx-amount-sum {
+    font-size: 14px;
+    font-weight: 800;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+
+  .tx-balance-sub {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--neo-text-subtle);
+  }
+
+  .tx-entry-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+
+  .tx-lokasi-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .tx-lokasi-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--neo-text-subtle);
+  }
+
+  .tx-lokasi-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--neo-text);
+  }
+
+  .tx-edit-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    color: var(--neo-text-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .tx-edit-btn:hover {
+    background: var(--neo-border);
+    color: var(--neo-text);
+  }
+
   /* List Items */
   .neo-list-stack {
     display: flex;
@@ -1335,43 +1545,10 @@
     gap: 3px;
   }
 
-  .tx-badge-bar,
   .card-header-bar {
     display: flex;
     align-items: center;
     gap: 6px;
-  }
-
-  .tx-type-badge {
-    font-size: 9px;
-    font-weight: 900;
-    padding: 2px 6px;
-    border: 1px solid var(--neo-border);
-    border-radius: 4px;
-    text-transform: uppercase;
-  }
-
-  .badge--pos {
-    background: var(--neo-green);
-    color: #000000;
-  }
-
-  .badge--neg {
-    background: var(--neo-yellow);
-    color: #000000;
-  }
-
-  .terminal-id {
-    font-family: ui-monospace, monospace;
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--neo-text-subtle);
-  }
-
-  .tx-time-text {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--neo-text-subtle);
   }
 
   .card-type-title {
@@ -1408,26 +1585,6 @@
     flex-direction: column;
     align-items: flex-end;
     gap: 4px;
-  }
-
-  .tx-amount-val {
-    font-family: ui-monospace, Menlo, monospace;
-    font-size: 14px;
-    font-weight: 900;
-  }
-
-  .amount--pos {
-    color: var(--neo-green);
-  }
-
-  .amount--neg {
-    color: var(--neo-text);
-  }
-
-  .tx-rest-balance {
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--neo-text-subtle);
   }
 
   .card-balance-highlight {
