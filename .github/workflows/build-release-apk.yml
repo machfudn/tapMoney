@@ -112,6 +112,7 @@ jobs:
           {
             echo "KEY_ALIAS=$KEY_ALIAS"
             echo "KEY_PASSWORD=$KEY_PASSWORD"
+            echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
           } >> "$GITHUB_ENV"
 
       - name: Align and sign APK
