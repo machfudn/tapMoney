@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
   import { CapacitorNfc, type NfcEvent, type NfcStateChangeEvent } from '@capgo/capacitor-nfc';
+  import { IsoDepNfc, type IsoDepEvent } from './lib/iso-dep';
   import {
     checkNfcStatus,
     openNfcSettings,
@@ -55,6 +56,10 @@
   let stateChangeListener: PluginListenerHandle | null = null;
   let tagDiscoveredListener: PluginListenerHandle | null = null;
   let nfcEventListener: PluginListenerHandle | null = null;
+  let isoDepListener: PluginListenerHandle | null = null;
+  let processingScan = false;
+  let lastScanKey = '';
+  let lastScanAt = 0;
   let pollInterval: ReturnType<typeof setInterval> | null = null;
   let systemThemeQuery: MediaQueryList | null = null;
 
@@ -133,6 +138,13 @@
   }
 
   async function processDiscoveredCard(event: NfcEvent) {
+    const tag = event.tag || (event as any);
+    const scanKey = Array.isArray(tag?.id) ? tag.id.join(',') : JSON.stringify(tag?.id || event);
+    const now = Date.now();
+    if (processingScan || (scanKey === lastScanKey && now - lastScanAt < 1200)) return;
+    processingScan = true;
+    lastScanKey = scanKey;
+    lastScanAt = now;
     try {
       let card: CardBalanceResult;
       try {
@@ -166,6 +178,8 @@
       }
     } catch {
       statusMessage = 'Gagal memproses data kartu';
+    } finally {
+      processingScan = false;
     }
   }
 
@@ -184,6 +198,14 @@
         await nfcEventListener.remove();
         nfcEventListener = null;
       }
+      if (isoDepListener) {
+        await isoDepListener.remove();
+        isoDepListener = null;
+      }
+
+      isoDepListener = await IsoDepNfc.addListener('cardDiscovered', async (event: IsoDepEvent) => {
+        await processDiscoveredCard({ tag: event } as NfcEvent);
+      });
 
       tagDiscoveredListener = await CapacitorNfc.addListener('tagDiscovered', async (event: NfcEvent) => {
         await processDiscoveredCard(event);
@@ -193,7 +215,7 @@
         await processDiscoveredCard(event);
       });
 
-      await CapacitorNfc.startScanning();
+      await IsoDepNfc.startScanning();
       isScanning = true;
       statusMessage = 'Tempelkan kartu di belakang ponsel';
     } catch {
@@ -217,7 +239,11 @@
         await nfcEventListener.remove();
         nfcEventListener = null;
       }
-      await CapacitorNfc.stopScanning();
+      if (isoDepListener) {
+        await isoDepListener.remove();
+        isoDepListener = null;
+      }
+      await IsoDepNfc.stopScanning();
     } catch {
       // ignore
     } finally {
@@ -346,6 +372,10 @@
     showToast('Tampilan kartu aktif ditutup');
   }
 
+  function formatTransactionDate(date: string) {
+    return new Date(`${date}T00:00:00`).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
   onMount(async () => {
     applyTheme(settings.theme);
 
@@ -377,6 +407,7 @@
     if (stateChangeListener) stateChangeListener.remove();
     if (tagDiscoveredListener) tagDiscoveredListener.remove();
     if (nfcEventListener) nfcEventListener.remove();
+    if (isoDepListener) isoDepListener.remove();
     if (systemThemeQuery) {
       systemThemeQuery.removeEventListener('change', handleSystemThemeChange);
     }
@@ -547,6 +578,29 @@
     </div>
 
     {#if currentCard}
+      {#if currentCard.history && currentCard.history.length > 0}
+        <div class="chip-history">
+          <div class="history-header">
+            <div class="history-title-group">
+              <h2 class="section-title">Riwayat Kartu</h2>
+              <span class="count-badge">{currentCard.history.length}</span>
+            </div>
+          </div>
+          <div class="history-stack">
+            {#each currentCard.history as transaction (`${transaction.date}-${transaction.time}-${transaction.amount}`)}
+              <div class="history-row">
+                <div class="history-row-main">
+                  <span class="history-card-type">{transaction.type}</span>
+                  <span class="history-card-pan">{formatTransactionDate(transaction.date)} {transaction.time}</span>
+                </div>
+                <div class="history-row-side">
+                  <span class="history-amount">{formatRupiah(transaction.amount)}</span>
+                </div>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
       <div class="action-grid">
         <button class="action-btn" onclick={() => handleCopyCardNumber(currentCard!.cardNumber)}>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

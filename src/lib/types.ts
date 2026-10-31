@@ -4,6 +4,8 @@ export interface CardBalanceResult {
   cardType: string;
   issuer: CardIssuer;
   cardNumber: string;
+  /** Stable physical-card identity. Never display as PAN. */
+  cardId?: string;
   balance: number;
   lastAmount?: number;
   history?: CardTransactionItem[];
@@ -15,6 +17,7 @@ export interface CardTransactionItem {
   amount: number;
   date: string;
   time: string;
+  balance?: number;
   terminalId?: string;
 }
 
