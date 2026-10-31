@@ -199,6 +199,83 @@ class CardParserTest {
         assertTrue(data.balanceKnown)
     }
 
+    // --- CEPAS (EZ-LINK / NETS) ---
+
+    @Test
+    fun `cepas reads balance and can from purse 3`() {
+        // Purse response: 16 bytes. Offset 2..4: balance in cents (e.g. 1500 cents = $15.00 -> 0x0005DC)
+        // Offset 8..15: CAN "1111222233334444"
+        val purseResp = "01000005DC00000011112222333344449000"
+        val card = FakeCard(
+            "9032030000" to purseResp
+        )
+        val data = id.tapmoney.nfc.parser.CepasParser().parseChannel(
+            card,
+            "AABBCCDD",
+            StringBuilder()
+        )
+        assertNotNull(data)
+        assertEquals(1500L, data!!.balance)
+        assertEquals(CardIssuer.CEPAS, data.issuer)
+        assertEquals("1111222233334444", data.cardNumber)
+    }
+
+    // --- T-MONEY (KOREA) ---
+
+    @Test
+    fun `tmoney reads balance 50000 krw`() {
+        val card = FakeCard(
+            "00A4040007D410000003000100" to "9000",
+            "904C000004" to "0000C3509000" // 0x0000C350 = 50,000 KRW
+        )
+        val data = id.tapmoney.nfc.parser.TMoneyParser().parseChannel(
+            card,
+            "DEADBEEF",
+            StringBuilder()
+        )
+        assertNotNull(data)
+        assertEquals(50000L, data!!.balance)
+        assertEquals(CardIssuer.TMONEY, data.issuer)
+    }
+
+    // --- CHINA PBOC / T-UNION ---
+
+    @Test
+    fun `china transit reads balance 50 cny`() {
+        val card = FakeCard(
+            "00A4040008A00000063201010500" to "9000",
+            "805C000204" to "000013889000" // 0x1388 = 5000 cents = 50.00 CNY
+        )
+        val data = id.tapmoney.nfc.parser.ChinaTransitParser().parseChannel(
+            card,
+            "DEADBEEF",
+            StringBuilder()
+        )
+        assertNotNull(data)
+        assertEquals(5000L, data!!.balance)
+        assertEquals(CardIssuer.CHINA_TRANSIT, data.issuer)
+    }
+
+    // --- SYDNEY OPAL ---
+
+    @Test
+    fun `opal reads application and file 7 data`() {
+        // 16 bytes dummy file 7 response with 9100
+        val rawData = "000000000000000000000000000000009100"
+        val card = FakeCard(
+            "905A00000353453100" to "9100",
+            "90BD0000070700000010000000" to rawData
+        )
+        val data = id.tapmoney.nfc.parser.OpalParser().parseChannel(
+            card,
+            "DEADBEEF",
+            StringBuilder()
+        )
+        assertNotNull(data)
+        assertEquals(CardIssuer.OPAL, data!!.issuer)
+        assertEquals(0L, data.balance)
+    }
+
     // --- SANITY CHECK ---
 
     @Test
