@@ -86,6 +86,7 @@ jobs:
             echo "Direktori android tidak ditemukan!"
             exit 1
           fi
+          sed -i 's/\r$//' gradlew
           chmod +x gradlew
           ./gradlew assembleRelease -PversionName="$VERSION_NAME" -PversionCode=$VERSION_CODE --no-daemon
 
@@ -94,10 +95,14 @@ jobs:
         run: |
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
             echo "Menggunakan Keystore dari Repository Secrets..."
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
-            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\r\n ' | base64 -d > release.keystore
+            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS || 'tapmoney' }}" >> $GITHUB_ENV
             echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
-            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+            KEY_PASS="${{ secrets.KEY_PASSWORD }}"
+            if [ -z "$KEY_PASS" ]; then
+              KEY_PASS="${{ secrets.KEYSTORE_PASSWORD }}"
+            fi
+            echo "KEY_PASSWORD=$KEY_PASS" >> $GITHUB_ENV
           else
             echo "KEYSTORE_BASE64 tidak ditemukan. Membuat keystore temporary untuk rilis..."
             keytool -genkeypair -v \
@@ -125,10 +130,10 @@ jobs:
           fi
 
           echo "APK Ditemukan: $UNSIGNED_APK"
-          BUILD_TOOLS=$(find $ANDROID_HOME/build-tools -mindepth 1 -maxdepth 1 | sort -V | tail -n 1)
+          BUILD_TOOLS=$(find ${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools -mindepth 1 -maxdepth 1 | sort -V | tail -n 1)
           echo "Menggunakan Android Build Tools: $BUILD_TOOLS"
 
-          $BUILD_TOOLS/zipalign -v -p 4 "$UNSIGNED_APK" aligned.apk
+          $BUILD_TOOLS/zipalign -f -v -p 4 "$UNSIGNED_APK" aligned.apk
 
           $BUILD_TOOLS/apksigner sign \
             --ks release.keystore \
