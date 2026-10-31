@@ -1,4 +1,4 @@
-import type { CardBalanceResult } from '../types';
+import type { CardBalanceResult, CardTransactionItem } from '../types';
 
 export interface StoredTapRecord {
   id: string;
@@ -9,6 +9,19 @@ export interface StoredTapRecord {
   lastAmount?: number;
   merchantName?: string;
   timestamp: string;
+}
+
+export interface StoredCardRecord {
+  cardNumber: string;
+  cardType: string;
+  issuer: string;
+  balance: number;
+  lastBalance?: number;
+  lastAmount?: number;
+  cardId?: string;
+  history?: CardTransactionItem[];
+  timestamp: string;
+  updatedAt?: string;
 }
 
 const DB_NAME = 'tap_money_db';
@@ -44,7 +57,7 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-// Save tap record and update last balance on card
+// Save tap record and update card snapshot
 export async function saveTapRecord(card: CardBalanceResult, merchantName?: string): Promise<StoredTapRecord> {
   const db = await openDatabase();
   const record: StoredTapRecord = {
@@ -67,7 +80,12 @@ export async function saveTapRecord(card: CardBalanceResult, merchantName?: stri
       cardNumber: card.cardNumber,
       cardType: card.cardType,
       issuer: card.issuer,
+      balance: card.balance,
       lastBalance: card.balance,
+      lastAmount: card.lastAmount,
+      cardId: card.cardId,
+      history: card.history || [],
+      timestamp: record.timestamp,
       updatedAt: record.timestamp
     });
 
@@ -103,6 +121,39 @@ export async function getStoredHistory(limit = 50): Promise<StoredTapRecord[]> {
   });
 }
 
+// Retrieve all saved cards sorted descending by updatedAt
+export async function getStoredCards(): Promise<StoredCardRecord[]> {
+  const db = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_CARDS, 'readonly');
+    const store = tx.objectStore(STORE_CARDS);
+    const request = store.getAll();
+
+    request.onsuccess = () => {
+      const cards: StoredCardRecord[] = request.result || [];
+      cards.sort((a, b) => (b.updatedAt || b.timestamp || '').localeCompare(a.updatedAt || a.timestamp || ''));
+      resolve(cards);
+    };
+
+    request.onerror = () => reject(request.error);
+  });
+}
+
+// Delete a single card from saved cards store
+export async function deleteStoredCard(cardNumber: string): Promise<void> {
+  const db = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_CARDS, 'readwrite');
+    const store = tx.objectStore(STORE_CARDS);
+    const request = store.delete(cardNumber);
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
 // Clear all records from history store
 export async function clearStoredHistory(): Promise<void> {
   const db = await openDatabase();
@@ -114,5 +165,19 @@ export async function clearStoredHistory(): Promise<void> {
 
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
+  });
+}
+
+// Clear all records from cards and history store
+export async function clearAllStoredData(): Promise<void> {
+  const db = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORE_CARDS, STORE_HISTORY], 'readwrite');
+    tx.objectStore(STORE_CARDS).clear();
+    tx.objectStore(STORE_HISTORY).clear();
+
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
