@@ -104,19 +104,8 @@ jobs:
             fi
             echo "KEY_PASSWORD=$KEY_PASS" >> $GITHUB_ENV
           else
-            echo "KEYSTORE_BASE64 tidak ditemukan. Membuat keystore temporary untuk rilis..."
-            keytool -genkeypair -v \
-              -keystore release.keystore \
-              -alias tapmoney \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass "Gilang#12" \
-              -keypass "Gilang#12" \
-              -dname "CN=TapMoney, OU=Mobile Dev, O=Machfudin, L=Jakarta, ST=DKI Jakarta, C=ID"
-            echo "KEY_ALIAS=tapmoney" >> $GITHUB_ENV
-            echo "KEYSTORE_PASSWORD=Gilang#12" >> $GITHUB_ENV
-            echo "KEY_PASSWORD=Gilang#12" >> $GITHUB_ENV
+            echo "KEYSTORE_BASE64 wajib diatur untuk build release."
+            exit 1
           fi
 
       - name: Align & Sign APK (V1 + V2 + V3)
@@ -157,7 +146,7 @@ jobs:
           if-no-files-found: error
 
       - name: Create or Update GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           files: TapMoney-v${{ env.VERSION_NAME }}.apk

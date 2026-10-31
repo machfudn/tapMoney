@@ -62,20 +62,29 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                 onSettingsChanged = { updateSettings(it) },
                 onClearCurrentCard = { currentCardState.value = null },
                 onDeleteSavedCard = { cardNumber ->
-                    db.deleteCard(cardNumber)
-                    if (currentCardState.value?.cardNumber == cardNumber) {
-                        currentCardState.value = null
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        db.deleteCard(cardNumber)
+                        withContext(Dispatchers.Main) {
+                            if (currentCardState.value?.cardNumber == cardNumber) currentCardState.value = null
+                            loadData()
+                        }
                     }
-                    loadData()
                 },
                 onClearAllData = {
-                    db.clearAllSavedCards()
-                    currentCardState.value = null
-                    loadData()
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        db.clearAllSavedCards()
+                        withContext(Dispatchers.Main) {
+                            currentCardState.value = null
+                            loadData()
+                        }
+                    }
                 },
                 onSaveLocationAlias = { tid, name ->
-                    db.setLocationAlias(tid, name)
-                    locationAliasesState.value = db.getLocationAliases()
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        db.setLocationAlias(tid, name)
+                        val aliases = db.getLocationAliases()
+                        withContext(Dispatchers.Main) { locationAliasesState.value = aliases }
+                    }
                 },
                 onSelectSavedCard = { saved ->
                     currentCardState.value = CardBalanceResult(
@@ -84,6 +93,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                         cardNumber = saved.cardNumber,
                         cardId = null,
                         balance = saved.balance,
+                        history = saved.history,
                         timestamp = saved.timestamp
                     )
                 }
@@ -155,7 +165,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             withContext(Dispatchers.Main) {
                 if (result != null) {
                     triggerHapticAndSound()
-                    db.saveCard(result)
+                    if (settingsState.value.autoSaveHistory) db.saveCard(result)
                     currentCardState.value = result
                     statusMessageState.value = "Berhasil membaca: ${result.cardType}"
                     loadData()
@@ -167,7 +177,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     }
 
     private fun triggerHapticAndSound() {
-        try {
+        if (!settingsState.value.enableHaptics && !settingsState.value.enableSound) return
+        if (settingsState.value.enableHaptics) try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
                 vibratorManager?.defaultVibrator?.vibrate(VibrationEffect.createOneShot(120, VibrationEffect.DEFAULT_AMPLITUDE))
@@ -183,7 +194,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             }
         } catch (ignored: Exception) {}
 
-        try {
+        if (settingsState.value.enableSound) try {
             toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
         } catch (ignored: Exception) {}
     }
@@ -201,7 +212,10 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
     private fun loadSettings() {
         val sp = getSharedPreferences("tap_money_prefs", Context.MODE_PRIVATE)
-        val mask = sp.getBoolean("mask_card_number", false)
+        val sound = sp.getBoolean("enable_sound", true)
+        val haptics = sp.getBoolean("enable_haptics", true)
+        val mask = sp.getBoolean("mask_card_number", true)
+        val autoSave = sp.getBoolean("auto_save_history", true)
         val hideBal = sp.getBoolean("hide_balance", false)
         val themeVal = sp.getString("theme", "system")
         val dark = when (themeVal) {
@@ -209,14 +223,24 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             "light" -> false
             else -> null
         }
-        settingsState.value = UserSettings(maskCardNumber = mask, hideBalance = hideBal, darkTheme = dark)
+        settingsState.value = UserSettings(
+            enableSound = sound,
+            enableHaptics = haptics,
+            maskCardNumber = mask,
+            autoSaveHistory = autoSave,
+            hideBalance = hideBal,
+            darkTheme = dark
+        )
     }
 
     private fun updateSettings(newSettings: UserSettings) {
         settingsState.value = newSettings
         val sp = getSharedPreferences("tap_money_prefs", Context.MODE_PRIVATE)
         sp.edit().apply {
+            putBoolean("enable_sound", newSettings.enableSound)
+            putBoolean("enable_haptics", newSettings.enableHaptics)
             putBoolean("mask_card_number", newSettings.maskCardNumber)
+            putBoolean("auto_save_history", newSettings.autoSaveHistory)
             putBoolean("hide_balance", newSettings.hideBalance)
             val themeStr = when (newSettings.darkTheme) {
                 true -> "dark"

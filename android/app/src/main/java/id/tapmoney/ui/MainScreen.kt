@@ -411,6 +411,54 @@ fun MainScreen(
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    // Sound switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Suara pembacaan", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Bunyikan beep saat kartu berhasil dibaca", fontSize = 11.sp, color = textSubtleColor)
+                        }
+                        Switch(
+                            checked = settings.enableSound,
+                            onCheckedChange = { onSettingsChanged(settings.copy(enableSound = it)) }
+                        )
+                    }
+
+                    // Haptics switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Getar", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Getar saat kartu berhasil dibaca", fontSize = 11.sp, color = textSubtleColor)
+                        }
+                        Switch(
+                            checked = settings.enableHaptics,
+                            onCheckedChange = { onSettingsChanged(settings.copy(enableHaptics = it)) }
+                        )
+                    }
+
+                    // Auto-save switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Simpan otomatis", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Simpan snapshot dan riwayat kartu lokal", fontSize = 11.sp, color = textSubtleColor)
+                        }
+                        Switch(
+                            checked = settings.autoSaveHistory,
+                            onCheckedChange = { onSettingsChanged(settings.copy(autoSaveHistory = it)) }
+                        )
+                    }
+
                     // Mask PAN switch
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -503,6 +551,7 @@ fun CardVisualWidget(
     textColor: Color,
     textSubtleColor: Color
 ) {
+    val context = LocalContext.current
     val issuer = currentCard?.issuer ?: CardIssuer.UNKNOWN
     val cardRes = when (issuer) {
         CardIssuer.MANDIRI -> R.drawable.emoney
@@ -595,7 +644,14 @@ fun CardVisualWidget(
                     color = Color.White,
                     fontSize = 16.sp,
                     fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Black
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.clickable(enabled = currentCard != null) {
+                        currentCard?.cardNumber?.let { number ->
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Nomor kartu", number))
+                            Toast.makeText(context, "Nomor kartu disalin", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -1042,18 +1098,23 @@ fun EmptyTray(
     }
 }
 
-fun shareReceipt(context: Context, card: CardBalanceResult?) {
-    if (card == null) return
-    val sdf = SimpleDateFormat("dd MMMM yyyy HH:mm:ss", Locale("id", "ID"))
-    val now = sdf.format(Date())
-    val text = """
+fun receiptText(card: CardBalanceResult): String {
+    val tx = card.history.firstOrNull()
+    return """
         === STRUK SALDO TAPMONEY ===
         Kartu   : ${card.cardType}
-        Nomor   : ${formatCardNumber(card.cardNumber, false)}
+        Nomor   : ${formatCardNumber(card.cardNumber, true)}
         Saldo   : ${formatRupiah(card.balance)}
-        Waktu   : $now
+        Transaksi terakhir: ${tx?.type ?: "-"} ${tx?.let { formatRupiah(it.amount) } ?: "-"}
+        Tanggal/Jam: ${tx?.let { "${it.date} ${it.time}" } ?: "-"}
+        Terminal: ${tx?.terminalId ?: "-"}
         ============================
     """.trimIndent()
+}
+
+fun shareReceipt(context: Context, card: CardBalanceResult?) {
+    if (card == null) return
+    val text = receiptText(card)
 
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
@@ -1064,16 +1125,7 @@ fun shareReceipt(context: Context, card: CardBalanceResult?) {
 
 fun copyReceipt(context: Context, card: CardBalanceResult?) {
     if (card == null) return
-    val sdf = SimpleDateFormat("dd MMMM yyyy HH:mm:ss", Locale("id", "ID"))
-    val now = sdf.format(Date())
-    val text = """
-        === STRUK SALDO TAPMONEY ===
-        Kartu   : ${card.cardType}
-        Nomor   : ${formatCardNumber(card.cardNumber, false)}
-        Saldo   : ${formatRupiah(card.balance)}
-        Waktu   : $now
-        ============================
-    """.trimIndent()
+    val text = receiptText(card)
 
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText("Struk Saldo", text))

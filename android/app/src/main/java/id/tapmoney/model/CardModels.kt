@@ -12,11 +12,11 @@ enum class CardIssuer(val displayName: String) {
 }
 
 data class CardTransactionItem(
-    val type: String,          // "Top up" or "Payment"
+    val type: String,
     val amount: Long,
     val balance: Long? = null,
-    val date: String,          // YYYY-MM-DD
-    val time: String,          // HH:mm:ss
+    val date: String,
+    val time: String,
     val terminalId: String? = null
 )
 
@@ -36,11 +36,15 @@ data class StoredCard(
     val cardType: String,
     val issuer: CardIssuer,
     val balance: Long,
-    val timestamp: Long
+    val timestamp: Long,
+    val history: List<CardTransactionItem> = emptyList()
 )
 
 data class UserSettings(
-    val maskCardNumber: Boolean = false,
+    val enableSound: Boolean = true,
+    val enableHaptics: Boolean = true,
+    val maskCardNumber: Boolean = true,
+    val autoSaveHistory: Boolean = true,
     val hideBalance: Boolean = false,
-    val darkTheme: Boolean? = null // null = system, true = dark, false = light
+    val darkTheme: Boolean? = null
 )

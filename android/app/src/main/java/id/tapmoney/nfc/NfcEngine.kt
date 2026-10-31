@@ -46,14 +46,8 @@ object NfcEngine {
                 val megaResult = probeMegaCash(isoDep, uidHex)
                 if (megaResult != null) return megaResult
 
-                // Fallback IsoDep
-                return CardBalanceResult(
-                    cardType = "Kartu Elektronik (ISO-DEP)",
-                    issuer = CardIssuer.UNKNOWN,
-                    cardNumber = generateCardNumber("8888", uidHex),
-                    cardId = uidHex,
-                    balance = 0
-                )
+                // Unknown ISO-DEP tags are not successful card reads.
+                return null
             } catch (e: Exception) {
                 Log.e(TAG, "Error probing IsoDep", e)
                 return null
@@ -89,16 +83,13 @@ object NfcEngine {
 
         val apduPan = hexToBytes("00B300003F")
         val respPan = isoDep.transceive(apduPan)
-        var cardNumber = generateCardNumber("6032", uidHex)
-        if (isSuccess(respPan) && respPan.size >= 8) {
-            val panHex = bytesToHex(respPan.sliceArray(0 until 8))
-            if (panHex.length == 16 && panHex.all { it.isDigit() }) {
-                cardNumber = panHex
-            }
-        }
+        val panData = responseData(respPan)
+        if (panData.size < 8) return null
+        val cardNumber = bytesToHex(panData.copyOfRange(0, 8))
 
         val apduBalance = hexToBytes("00B500000A")
         val respBalance = isoDep.transceive(apduBalance)
+        if (!isSuccess(respBalance) || respBalance.size < 6) return null
         var balance = 0L
         if (respBalance.size >= 4) {
             balance = ((respBalance[0].toLong() and 0xFF)) or
@@ -107,13 +98,13 @@ object NfcEngine {
                     ((respBalance[3].toLong() and 0xFF) shl 24)
         }
 
-        // Mandiri history records (records 1..10)
+        // Mandiri history records (records 1..30)
         val history = mutableListOf<CardTransactionItem>()
         val isNewCard = cardNumber.startsWith("603298") || cardNumber.startsWith("603299")
         val sfi = if (isNewCard) "04" else "08"
 
-        for (rec in 1..10) {
-            val apduRec = hexToBytes(String.format("00B2%02X%s00", rec, sfi))
+        for (rec in 1..30) {
+            val apduRec = hexToBytes(String.format("00B2%02X%s00", rec, if (sfi == "04") "24" else "44"))
             try {
                 val resp = isoDep.transceive(apduRec)
                 if (isSuccess(resp) && resp.size >= 24) {
@@ -173,34 +164,22 @@ object NfcEngine {
 
     // --- BCA FLAZZ ---
     private fun probeFlazz(isoDep: IsoDep, uidHex: String): CardBalanceResult? {
-        val apduSelect = hexToBytes("00A4040007A0000000041010")
+        val apduSelect = hexToBytes("00A404000BA00000180F0000018001")
         val respSelect = isoDep.transceive(apduSelect)
         if (!isSuccess(respSelect)) return null
 
-        var cardNumber = generateCardNumber("6013", uidHex)
-        val apduTrack2 = hexToBytes("00B2010C00")
-        try {
-            val respTrack2 = isoDep.transceive(apduTrack2)
-            if (isSuccess(respTrack2)) {
-                val hexStr = bytesToHex(respTrack2)
-                val digitsOnly = hexStr.filter { it.isDigit() }
-                if (digitsOnly.length >= 16) {
-                    val candidate = digitsOnly.substring(0, 16)
-                    if (candidate.startsWith("6013") || candidate.startsWith("6019")) {
-                        cardNumber = candidate
-                    }
-                }
-            }
-        } catch (ignored: Exception) {}
+        val respTrack2 = try { isoDep.transceive(hexToBytes("00B2010C00")) } catch (_: Exception) { return null }
+        if (!isSuccess(respTrack2)) return null
+        val cardNumber = extractDigitsFromBcd(responseData(respTrack2), setOf("6013", "6019")) ?: return null
 
         var balance = 0L
         val apduLiveBalance = hexToBytes("805C000204")
         try {
             val respBal = isoDep.transceive(apduLiveBalance)
             if (isSuccess(respBal) && respBal.size >= 5) {
-                balance = ((respBal[1].toLong() and 0xFF) shl 16) or
-                        ((respBal[2].toLong() and 0xFF) shl 8) or
-                        ((respBal[3].toLong() and 0xFF))
+                balance = ((respBal[0].toLong() and 0xFF) shl 16) or
+                        ((respBal[1].toLong() and 0xFF) shl 8) or
+                        (respBal[2].toLong() and 0xFF)
             }
         } catch (ignored: Exception) {}
 
@@ -210,7 +189,7 @@ object NfcEngine {
         val sdfTime = SimpleDateFormat("HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("Asia/Jakarta") }
 
         for (rec in 1..10) {
-            val apduRec = hexToBytes(String.format("00B2%02X1400", rec))
+            val apduRec = hexToBytes(String.format("90BD000007%02X00000020000000", rec))
             try {
                 var resp = isoDep.transceive(apduRec)
                 if (!isSuccess(resp)) {
@@ -269,39 +248,31 @@ object NfcEngine {
 
     // --- BRI BRIZZI ---
     private fun probeBrizzi(isoDep: IsoDep, uidHex: String): CardBalanceResult? {
-        val apduSelect = hexToBytes("00A4040009A00000009600000001")
+        val apduSelect = hexToBytes("905A00000301000000")
         val respSelect = isoDep.transceive(apduSelect)
         if (!isSuccess(respSelect)) return null
 
-        var cardNumber = generateCardNumber("5058", uidHex)
+        var cardNumber: String? = null
         var balance = 0L
 
-        val apduInfo = hexToBytes("00B2010C00")
+        val apduInfo = hexToBytes("90BD0000070000000017000000")
         try {
             val respInfo = isoDep.transceive(apduInfo)
             if (isSuccess(respInfo) && respInfo.size >= 30) {
-                val hexStr = bytesToHex(respInfo)
-                val panDigits = hexStr.filter { it.isDigit() }
-                if (panDigits.length >= 16) {
-                    val candidate = panDigits.substring(0, 16)
-                    if (candidate.startsWith("5058") || candidate.startsWith("5059")) {
-                        cardNumber = candidate
-                    }
-                }
+                val info = reverseHex(responseData(respInfo))
+                if (info.length >= 22) cardNumber = info.substring(6, 22)
 
-                // Balance little endian at offset 26..29
-                if (respInfo.size >= 30) {
-                    balance = ((respInfo[26].toLong() and 0xFF)) or
-                            ((respInfo[27].toLong() and 0xFF) shl 8) or
-                            ((respInfo[28].toLong() and 0xFF) shl 16) or
-                            ((respInfo[29].toLong() and 0xFF) shl 24)
+                val balanceResponse = isoDep.transceive(hexToBytes("906C0000010000"))
+                if (isSuccess(balanceResponse)) {
+                    val balanceHex = reverseHex(responseData(balanceResponse)).take(8)
+                    balance = balanceHex.toLongOrNull(16) ?: 0L
                 }
             }
         } catch (ignored: Exception) {}
 
         val history = mutableListOf<CardTransactionItem>()
         for (rec in 1..10) {
-            val apduRec = hexToBytes(String.format("00B2%02X1400", rec))
+            val apduRec = hexToBytes(String.format("90BD000007%02X00000020000000", rec))
             try {
                 val resp = isoDep.transceive(apduRec)
                 if (isSuccess(resp) && resp.size >= 32) {
@@ -341,7 +312,7 @@ object NfcEngine {
         return CardBalanceResult(
             cardType = "BRI Brizzi",
             issuer = CardIssuer.BRI,
-            cardNumber = cardNumber,
+            cardNumber = cardNumber ?: return null,
             cardId = uidHex,
             balance = balance,
             history = history
@@ -350,160 +321,101 @@ object NfcEngine {
 
     // --- BNI TAPCASH ---
     private fun probeTapCash(isoDep: IsoDep, uidHex: String): CardBalanceResult? {
-        val apduSelect = hexToBytes("00A4040008A000000018100101")
-        val respSelect = isoDep.transceive(apduSelect)
-        if (!isSuccess(respSelect)) return null
+        val select = isoDep.transceive(hexToBytes("00A4040008A000424E49100001"))
+        if (!isSuccess(select)) return null
 
-        var cardNumber = generateCardNumber("7546", uidHex)
-        val apduPan = hexToBytes("00B0810020")
-        try {
-            val respPan = isoDep.transceive(apduPan)
-            if (isSuccess(respPan)) {
-                val hexStr = bytesToHex(respPan)
-                val digits = hexStr.filter { it.isDigit() }
-                if (digits.length >= 16) {
-                    val candidate = digits.substring(0, 16)
-                    if (candidate.startsWith("7546")) {
-                        cardNumber = candidate
-                    }
-                }
-            }
-        } catch (ignored: Exception) {}
-
-        var balance = 0L
-        val apduBal = hexToBytes("805C000004")
-        try {
-            val respBal = isoDep.transceive(apduBal)
-            if (isSuccess(respBal) && respBal.size >= 4) {
-                balance = ((respBal[0].toLong() and 0xFF) shl 24) or
-                        ((respBal[1].toLong() and 0xFF) shl 16) or
-                        ((respBal[2].toLong() and 0xFF) shl 8) or
-                        ((respBal[3].toLong() and 0xFF))
-            }
-        } catch (ignored: Exception) {}
-
-        val history = mutableListOf<CardTransactionItem>()
-        val baseTapCashEpoch = 788893200000L // 1995-01-01 UTC
-        val sdfDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("Asia/Jakarta") }
-        val sdfTime = SimpleDateFormat("HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("Asia/Jakarta") }
-
-        for (rec in 1..10) {
-            val apduRec = hexToBytes(String.format("00B2%02XC400", rec))
-            try {
-                val resp = isoDep.transceive(apduRec)
-                if (isSuccess(resp) && resp.size >= 16) {
-                    val hex = bytesToHex(resp)
-                    val rawSec = hex.substring(0, 8).toLongOrNull(16) ?: 0L
-                    if (rawSec > 0) {
-                        val txDateMs = (rawSec * 1000) + baseTapCashEpoch
-                        val dateStr = sdfDate.format(Date(txDateMs))
-                        val timeStr = sdfTime.format(Date(txDateMs))
-
-                        val amt = hex.substring(8, 14).toLongOrNull(16) ?: 0L
-                        val typeCode = hex.substring(14, 16)
-                        val isTopUp = typeCode == "03" || typeCode == "04" || typeCode == "06"
-                        val typeStr = if (isTopUp) "Top up" else "Payment"
-
-                        val tid = hex.substring(16, 24)
-
-                        if (amt > 0) {
-                            history.add(
-                                CardTransactionItem(
-                                    type = typeStr,
-                                    amount = amt,
-                                    balance = null,
-                                    date = dateStr,
-                                    time = timeStr,
-                                    terminalId = tid
-                                )
-                            )
-                        }
-                    }
-                }
-            } catch (ignored: Exception) {}
-        }
+        // Reference reader uses 90 32 03 00. Response data: balance at 2..4,
+        // card identifier at 8..15. Do not derive PAN from UID.
+        val read = isoDep.transceive(hexToBytes("90320300"))
+        if (!isSuccess(read)) return null
+        val data = responseData(read)
+        if (data.size < 16) return null
+        val cardNumber = bytesToHex(data.copyOfRange(8, 16))
+        if (cardNumber.all { it == '0' || it == 'F' }) return null
+        val balance = ((data[2].toLong() and 0xFF) shl 16) or
+                ((data[3].toLong() and 0xFF) shl 8) or
+                (data[4].toLong() and 0xFF)
 
         return CardBalanceResult(
             cardType = "BNI TapCash",
             issuer = CardIssuer.BNI,
             cardNumber = cardNumber,
             cardId = uidHex,
-            balance = balance,
-            history = history
+            balance = balance
         )
     }
 
     // --- BANK MEGA MEGACASH ---
     private fun probeMegaCash(isoDep: IsoDep, uidHex: String): CardBalanceResult? {
-        val apduSelect = hexToBytes("00A4040007A0000000041010")
-        val respSelect = isoDep.transceive(apduSelect)
-        if (!isSuccess(respSelect)) return null
-
-        val apduBal = hexToBytes("805C000004")
-        val respBal = isoDep.transceive(apduBal)
-        if (isSuccess(respBal) && respBal.size >= 4) {
-            val bal = ((respBal[0].toLong() and 0xFF) shl 24) or
-                    ((respBal[1].toLong() and 0xFF) shl 16) or
-                    ((respBal[2].toLong() and 0xFF) shl 8) or
-                    ((respBal[3].toLong() and 0xFF))
-            return CardBalanceResult(
-                cardType = "Bank Mega MegaCash",
-                issuer = CardIssuer.MEGA,
-                cardNumber = generateCardNumber("6020", uidHex),
-                cardId = uidHex,
-                balance = bal
-            )
-        }
-        return null
+        val select = isoDep.transceive(hexToBytes("00A4040007A0000000030002"))
+        if (!isSuccess(select)) return null
+        val balanceResponse = isoDep.transceive(hexToBytes("805C000004"))
+        if (!isSuccess(balanceResponse)) return null
+        val balanceData = responseData(balanceResponse)
+        if (balanceData.size < 4) return null
+        val numberResponse = try { isoDep.transceive(hexToBytes("00B2010C00")) } catch (_: Exception) { return null }
+        if (!isSuccess(numberResponse)) return null
+        val cardNumber = extractDigitsFromBcd(responseData(numberResponse), setOf("6019")) ?: return null
+        val balance = ((balanceData[0].toLong() and 0xFF) shl 24) or
+                ((balanceData[1].toLong() and 0xFF) shl 16) or
+                ((balanceData[2].toLong() and 0xFF) shl 8) or
+                (balanceData[3].toLong() and 0xFF)
+        return CardBalanceResult("Bank Mega MegaCash", CardIssuer.MEGA, cardNumber, uidHex, balance)
     }
 
     // --- KMT COMMUTER LINE (NfcF) ---
-    private fun probeKmt(nfcF: NfcF, uidHex: String): CardBalanceResult {
-        var balance = 0L
-        try {
-            // Felica Read Without Encryption for KMT Service 0x220F
+    private fun probeKmt(nfcF: NfcF, uidHex: String): CardBalanceResult? {
+        return try {
             val req = byteArrayOf(
-                0x10.toByte(), // Length
-                0x06.toByte(), // Command: Read Without Encryption
-                // IDm (8 bytes from system code)
+                0x10, 0x06,
                 0, 0, 0, 0, 0, 0, 0, 0,
-                0x01.toByte(), // Number of services
-                0x0F.toByte(), 0x22.toByte(), // Service Code 0x220F LE
-                0x01.toByte(), // Number of blocks
-                0x80.toByte(), 0x00.toByte() // Block 0
+                0x01, 0x0F, 0x22, 0x01, 0x80.toByte(), 0x00
             )
-            System.arraycopy(nfcF.tag.id, 0, req, 2, 8)
+            val idm = nfcF.tag.id
+            if (idm.size < 8) return null
+            System.arraycopy(idm, 0, req, 2, 8)
             val resp = nfcF.transceive(req)
-            if (resp.size >= 13 && resp[10] == 0x00.toByte() && resp[11] == 0x00.toByte()) {
-                val blockOffset = 13
-                balance = ((resp[blockOffset].toLong() and 0xFF)) or
-                        ((resp[blockOffset + 1].toLong() and 0xFF) shl 8) or
-                        ((resp[blockOffset + 2].toLong() and 0xFF) shl 16)
-            }
-        } catch (ignored: Exception) {}
-
-        return CardBalanceResult(
-            cardType = "KMT Commuter Line",
-            issuer = CardIssuer.KCI,
-            cardNumber = generateCardNumber("1002", uidHex),
-            cardId = uidHex,
-            balance = balance
-        )
-    }
-
-    fun generateCardNumber(prefix: String, uidHex: String): String {
-        val cleanUid = uidHex.replace(":", "").uppercase()
-        val digits = cleanUid.map { it.code.rem(10).toString() }.joinToString("")
-        val remaining = (16 - prefix.length).coerceAtLeast(0)
-        return prefix + digits.padEnd(remaining, '0').substring(0, remaining)
+            if (resp.size < 16 || resp[10] != 0.toByte() || resp[11] != 0.toByte()) return null
+            val blockOffset = 13
+            val balance = (resp[blockOffset].toLong() and 0xFF) or
+                    ((resp[blockOffset + 1].toLong() and 0xFF) shl 8) or
+                    ((resp[blockOffset + 2].toLong() and 0xFF) shl 16)
+            CardBalanceResult("KMT Commuter Line", CardIssuer.KCI, bytesToHex(idm), uidHex, balance)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun isSuccess(resp: ByteArray?): Boolean {
         if (resp == null || resp.size < 2) return false
         val sw1 = resp[resp.size - 2].toInt() and 0xFF
         val sw2 = resp[resp.size - 1].toInt() and 0xFF
-        return (sw1 == 0x90 && sw2 == 0x00) || sw1 == 0x91 || sw1 == 0x61 || sw1 == 0x62 || sw1 == 0x63
+        return (sw1 == 0x90 || sw1 == 0x91) && sw2 == 0x00
     }
+
+    private fun responseData(resp: ByteArray): ByteArray = resp.copyOf(resp.size - 2)
+
+    private fun extractDigitsFromBcd(data: ByteArray, prefixes: Set<String> = emptySet()): String? {
+        for (offset in data.indices) {
+            val end = minOf(data.size, offset + 10)
+            val digits = buildString {
+                for (index in offset until end) {
+                    val value = data[index].toInt() and 0xFF
+                    val hi = value ushr 4
+                    val lo = value and 0x0F
+                    if (hi > 9 || lo > 9) break
+                    append(hi).append(lo)
+                }
+            }
+            if (digits.length >= 16) {
+                val candidate = digits.take(16)
+                if (prefixes.isEmpty() || prefixes.any(candidate::startsWith)) return candidate
+            }
+        }
+        return null
+    }
+
+    private fun reverseHex(bytes: ByteArray): String = bytesToHex(bytes.reversedArray())
 
     fun bytesToHex(bytes: ByteArray): String {
         val hexChars = "0123456789ABCDEF"
@@ -518,6 +430,7 @@ object NfcEngine {
 
     fun hexToBytes(hex: String): ByteArray {
         val clean = hex.replace("[^0-9A-Fa-f]".toRegex(), "")
+        require(clean.length % 2 == 0) { "Hex APDU must contain complete bytes" }
         val result = ByteArray(clean.length / 2)
         for (i in result.indices) {
             result[i] = clean.substring(i * 2, i * 2 + 2).toInt(16).toByte()

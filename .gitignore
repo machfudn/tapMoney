@@ -7,6 +7,12 @@ dist-ssr/
 e2e/
 test/
 tests/
+!android/app/src/test/
+!android/app/src/test/java/
+!android/app/src/test/java/id/
+!android/app/src/test/java/id/tapmoney/
+!android/app/src/test/java/id/tapmoney/nfc/
+!android/app/src/test/java/id/tapmoney/nfc/NfcEngineTest.kt
 playwright.config.ts
 test-results/
 playwright-report/
@@ -19,6 +25,7 @@ src/assets/raw_drawables/
 *.aab
 *.keystore
 *.jks
+keystore_base64.txt
 local.properties
 .gradle/
 build/
