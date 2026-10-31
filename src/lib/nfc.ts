@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { CapacitorNfc, type NfcEvent } from '@capgo/capacitor-nfc';
 import type { CardBalanceResult, CardIssuer } from './types';
+import { IsoDepNfc } from './iso-dep';
 import { generateCardNumber } from './apdu/card-formatter';
 
 export function bytesToHex(bytes: number[]): string {
@@ -35,14 +36,19 @@ export async function checkNfcStatus(): Promise<{ supported: boolean; enabled: b
   }
 
   try {
-    const supportedRes = await CapacitorNfc.isSupported();
-    const statusRes = await CapacitorNfc.getStatus();
-    return {
-      supported: Boolean(supportedRes?.supported),
-      enabled: statusRes?.status === 'NFC_OK'
-    };
+    const status = await IsoDepNfc.isSupported();
+    return { supported: Boolean(status?.supported), enabled: Boolean(status?.enabled) };
   } catch {
-    return { supported: false, enabled: false };
+    try {
+      const supportedRes = await CapacitorNfc.isSupported();
+      const statusRes = await CapacitorNfc.getStatus();
+      return {
+        supported: Boolean(supportedRes?.supported),
+        enabled: statusRes?.status === 'NFC_OK'
+      };
+    } catch {
+      return { supported: false, enabled: false };
+    }
   }
 }
 
@@ -61,6 +67,7 @@ export function identifyCardFromTag(event: NfcEvent): CardBalanceResult {
   const tag = event.tag || (event as any);
   const techTypes: string[] = tag.techTypes || [];
   const uidHex = tag.id && Array.isArray(tag.id) ? bytesToHex(tag.id) : 'UNKNOWN_UID';
+  const cardId = uidHex === 'UNKNOWN_UID' ? undefined : uidHex;
 
   let issuer: CardIssuer = 'Unknown';
   let cardType = 'Kartu Elektronik (NFC)';
@@ -84,6 +91,7 @@ export function identifyCardFromTag(event: NfcEvent): CardBalanceResult {
     cardType,
     issuer,
     cardNumber: generateCardNumber(prefix, uidHex),
+    cardId,
     balance: 0,
     lastAmount: 0,
     timestamp: new Date().toISOString()
