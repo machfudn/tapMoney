@@ -4,9 +4,11 @@ import android.nfc.Tag
 import id.tapmoney.model.CardBalanceResult
 
 object NfcEngine {
-    fun readCard(tag: Tag): CardBalanceResult? = CardParser.parse(tag)
+    fun readCard(tag: Tag, settings: id.tapmoney.model.UserSettings? = null): CardBalanceResult? =
+        CardParser.parse(tag, settings)
 
-    fun parseDetailed(tag: Tag): CardParser.Outcome = CardParser.parseDetailed(tag)
+    fun parseDetailed(tag: Tag, settings: id.tapmoney.model.UserSettings? = null): CardParser.Outcome =
+        CardParser.parseDetailed(tag, settings)
 
     fun isSuccess(resp: ByteArray?): Boolean = resp?.isSuccess() == true
 

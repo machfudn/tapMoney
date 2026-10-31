@@ -5,6 +5,8 @@ import android.nfc.tech.IsoDep
 import android.util.Log
 import id.tapmoney.model.CardBalanceResult
 import id.tapmoney.nfc.parser.BrizziParser
+import id.tapmoney.nfc.parser.CepasParser
+import id.tapmoney.nfc.parser.ChinaTransitParser
 import id.tapmoney.nfc.parser.EmoneyParser
 import id.tapmoney.nfc.parser.FelicaParser
 import id.tapmoney.nfc.parser.FlazzParser
@@ -12,6 +14,8 @@ import id.tapmoney.nfc.parser.JakCardParser
 import id.tapmoney.nfc.parser.MandiriParser
 import id.tapmoney.nfc.parser.MegaCashParser
 import id.tapmoney.nfc.parser.MifareLegacyParser
+import id.tapmoney.nfc.parser.OpalParser
+import id.tapmoney.nfc.parser.TMoneyParser
 import id.tapmoney.nfc.parser.TapCashParser
 
 object CardParser {
@@ -26,6 +30,10 @@ object CardParser {
         TapCashParser(),
         JakCardParser(),
         MegaCashParser(),
+        CepasParser(),
+        TMoneyParser(),
+        ChinaTransitParser(),
+        OpalParser(),
         MifareLegacyParser()
     )
 
@@ -62,15 +70,23 @@ object CardParser {
 
     data class Outcome(val card: CardBalanceResult?, val techList: List<String>, val log: String)
 
-    fun parse(tag: Tag): CardBalanceResult? = parseDetailed(tag).card
+    fun parse(tag: Tag, settings: id.tapmoney.model.UserSettings? = null): CardBalanceResult? =
+        parseDetailed(tag, settings).card
 
     @Synchronized
-    fun parseDetailed(tag: Tag): Outcome {
+    fun parseDetailed(tag: Tag, settings: id.tapmoney.model.UserSettings? = null): Outcome {
         val techList = tag.techList.map { it.substringAfterLast(".") }
         val sb = StringBuilder()
         sb.append("Tech: ${techList.joinToString()}\n")
 
-        val allParsers = customParsers + defaultParsers
+        val allParsers = (customParsers + defaultParsers).filter { parser ->
+            if (settings == null) true
+            else when (parser.category) {
+                id.tapmoney.model.CardCategory.DOMESTIC_BANKING -> settings.scanDomesticBanking
+                id.tapmoney.model.CardCategory.DOMESTIC_TRANSIT -> settings.scanDomesticTransit
+                id.tapmoney.model.CardCategory.REGIONAL_TRANSIT -> settings.scanRegionalTransit
+            }
+        }
         val hasIsoDep = tag.techList.contains(IsoDep::class.java.name)
         val isoDepChannel = if (hasIsoDep) getSharedIsoDep(tag)?.asChannel() else null
 
