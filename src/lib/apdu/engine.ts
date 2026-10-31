@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { CapacitorNfc, type NfcEvent } from '@capgo/capacitor-nfc';
 import type { CardBalanceResult } from '../types';
+import { IsoDepNfc } from '../iso-dep';
 import {
   bytesToHex,
   buildSelectAidApdu,
@@ -14,6 +15,7 @@ import { parseBrizziPayload } from './parsers/brizzi';
 import { parseKmtPayload } from './parsers/kmt';
 import { AID_MEGACASH, parseMegaCashPayload } from './parsers/megacash';
 import { generateCardNumber } from './card-formatter';
+import { readBrizziHistory, readEmoneyHistory, readFlazzHistory, readTapcashHistory } from './reader';
 
 const AID_EMONEY = 'A000000003000000';
 const AID_FLAZZ = 'A0000000030000';
@@ -29,7 +31,7 @@ async function transceiveApdu(commandBytes: number[]): Promise<number[] | null> 
 
   try {
     const res = await Promise.race([
-      CapacitorNfc.transceive({
+      IsoDepNfc.transceive({
         data: commandBytes,
         timeout: 1500
       }),
@@ -37,7 +39,12 @@ async function transceiveApdu(commandBytes: number[]): Promise<number[] | null> 
     ]);
     return (res as any)?.response || null;
   } catch {
-    return null;
+    try {
+      const res = await CapacitorNfc.transceive({ data: commandBytes, timeout: 1500 });
+      return (res as any)?.response || null;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -45,6 +52,7 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
   const tag = event.tag || (event as any);
   const techTypes = tag.techTypes || [];
   const uidHex = tag.id && Array.isArray(tag.id) ? bytesToHex(tag.id) : 'UNKNOWN_UID';
+  const cardId = uidHex === 'UNKNOWN_UID' ? undefined : uidHex;
 
   // Check FeliCa (KMT)
   if (techTypes.some((t: string) => t.includes('NfcF'))) {
@@ -68,10 +76,12 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
       if (respEmoney) {
         const parsed = parseApduResponse(respEmoney);
         if (parsed.isSuccess) {
-          const balanceResp = await transceiveApdu(buildReadBinaryApdu(0, 4));
+          const balanceResp = await transceiveApdu([0x00, 0xb5, 0x00, 0x00, 0x0a]);
           if (balanceResp) {
             const balanceParsed = parseApduResponse(balanceResp);
-            return parseEmoneyPayload(balanceParsed.data, uidHex);
+            const card = parseEmoneyPayload(balanceParsed.data, uidHex);
+            card.history = await readEmoneyHistory();
+            return card;
           }
         }
       }
@@ -87,7 +97,9 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
           const balanceResp = await transceiveApdu(buildReadBinaryApdu(0, 4));
           if (balanceResp) {
             const balanceParsed = parseApduResponse(balanceResp);
-            return parseFlazzPayload(balanceParsed.data, uidHex);
+            const card = parseFlazzPayload(balanceParsed.data, uidHex);
+            card.history = await readFlazzHistory();
+            return card;
           }
         }
       }
@@ -100,7 +112,9 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
           const balanceResp = await transceiveApdu([0x90, 0x6c, 0x00, 0x00, 0x01, 0x00, 0x00]);
           if (balanceResp) {
             const balanceParsed = parseApduResponse(balanceResp);
-            return parseBrizziPayload(balanceParsed.data, uidHex);
+            const card = parseBrizziPayload(balanceParsed.data, uidHex);
+            card.history = await readBrizziHistory();
+            return card;
           }
         }
       }
@@ -116,7 +130,9 @@ export async function readCardViaApdu(event: NfcEvent): Promise<CardBalanceResul
           const balanceResp = await transceiveApdu(buildReadBinaryApdu(0, 4));
           if (balanceResp) {
             const balanceParsed = parseApduResponse(balanceResp);
-            return parseTapcashPayload(balanceParsed.data, uidHex);
+            const card = parseTapcashPayload(balanceParsed.data, uidHex);
+            card.history = await readTapcashHistory();
+            return card;
           }
         }
       }

@@ -1,5 +1,6 @@
 import type { CardBalanceResult } from '../../types';
 import { generateCardNumber } from '../card-formatter';
+import { parseEmoneyHistory } from './history';
 
 // Parse Mandiri e-Money balance and card details from raw chip bytes
 export function parseEmoneyPayload(rawBytes: number[], uidHex: string): CardBalanceResult {
@@ -36,8 +37,10 @@ export function parseEmoneyPayload(rawBytes: number[], uidHex: string): CardBala
     cardType: 'Mandiri e-Money',
     issuer: 'Mandiri',
     cardNumber,
+    cardId: uidHex,
     balance,
     lastAmount: 0,
+    history: parseEmoneyHistory([]),
     timestamp: new Date().toISOString()
   };
 }

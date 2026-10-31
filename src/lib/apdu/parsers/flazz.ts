@@ -1,5 +1,6 @@
 import type { CardBalanceResult } from '../../types';
 import { generateCardNumber } from '../card-formatter';
+import { parseFlazzHistory } from './history';
 
 // Parse BCA Flazz Gen 1 and Gen 2 balance payload
 export function parseFlazzPayload(rawBytes: number[], uidHex: string): CardBalanceResult {
@@ -34,8 +35,10 @@ export function parseFlazzPayload(rawBytes: number[], uidHex: string): CardBalan
     cardType: 'BCA Flazz',
     issuer: 'BCA',
     cardNumber,
+    cardId: uidHex,
     balance,
     lastAmount: 0,
+    history: parseFlazzHistory([]),
     timestamp: new Date().toISOString()
   };
 }

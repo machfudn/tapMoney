@@ -1,5 +1,6 @@
 import type { CardBalanceResult } from '../../types';
 import { generateCardNumber } from '../card-formatter';
+import { parseTapcashHistory } from './history';
 
 // Parse BNI TapCash balance payload
 export function parseTapcashPayload(rawBytes: number[], uidHex: string): CardBalanceResult {
@@ -33,8 +34,10 @@ export function parseTapcashPayload(rawBytes: number[], uidHex: string): CardBal
     cardType: 'BNI TapCash',
     issuer: 'BNI',
     cardNumber,
+    cardId: uidHex,
     balance,
     lastAmount: 0,
+    history: parseTapcashHistory([]),
     timestamp: new Date().toISOString()
   };
 }

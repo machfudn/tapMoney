@@ -28,6 +28,7 @@ export function parseMegaCashPayload(data: number[], uidHex: string): CardBalanc
     cardType: 'Bank Mega MegaCash',
     issuer: 'Mega',
     cardNumber,
+    cardId: uidHex,
     balance,
     lastAmount: 0,
     timestamp: new Date().toISOString()

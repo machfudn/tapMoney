@@ -1,5 +1,6 @@
 import type { CardBalanceResult } from '../../types';
 import { generateCardNumber } from '../card-formatter';
+import { parseBrizziHistory } from './history';
 
 // Parse BRI Brizzi DESFire balance payload
 export function parseBrizziPayload(rawBytes: number[], uidHex: string): CardBalanceResult {
@@ -35,8 +36,10 @@ export function parseBrizziPayload(rawBytes: number[], uidHex: string): CardBala
     cardType: 'BRI Brizzi',
     issuer: 'BRI',
     cardNumber,
+    cardId: uidHex,
     balance,
     lastAmount: 0,
+    history: parseBrizziHistory([]),
     timestamp: new Date().toISOString()
   };
 }

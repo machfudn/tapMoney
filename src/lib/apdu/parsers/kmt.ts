@@ -27,6 +27,7 @@ export function parseKmtPayload(blockBytes: number[], uidHex: string): CardBalan
     cardType: 'KMT Commuter Line',
     issuer: 'KCI',
     cardNumber,
+    cardId: uidHex,
     balance,
     lastAmount: 0,
     timestamp: new Date().toISOString()
