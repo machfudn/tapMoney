@@ -201,6 +201,30 @@ class CardParserTest {
         assertTrue(data.balanceKnown)
     }
 
+    @Test
+    fun `brizzi selects application 020000 and reads history when app 010000 has no records`() {
+        val prefix = "00000000112233445566778899AABBCC"
+        val rec = prefix + "011124" + "102030" + "EB" + "50C300" + "00000000" + "0000"
+
+        // App 010000 returns 9100 on select, PAN on 90BD, balance on 906C
+        // App 020000 (905A00000302000000) selects history app, 90BB returns record
+        val card = FakeCard(
+            "905A00000301000000" to "9100",
+            "905A00000302000000" to "9100",
+            "90BD0000" to ("010000" + "5221840012345678" + "00".repeat(12) + "9100"),
+            "906C0000" to "50C300009100",
+            "90BB0000" to (rec + "9100")
+        )
+        val data = BrizziParser().parseChannel(card, "AABBCCDD", StringBuilder())
+        assertNotNull(data)
+        assertEquals("5221840012345678", data!!.cardNumber)
+        assertEquals(50_000L, data.balance)
+        assertEquals(1, data.history.size)
+        assertEquals("2024-11-01", data.history[0].date)
+        assertEquals("10:20:30", data.history[0].time)
+        assertEquals(50_000L, data.history[0].amount)
+    }
+
     // --- BNI TAPCASH ---
 
     @Test

@@ -176,82 +176,160 @@ class BrizziParser : EmoneyParser {
 
     private fun readHistory(channel: ApduChannel, log: StringBuilder): List<CardTransactionItem> {
         val history = mutableListOf<CardTransactionItem>()
-        val recordFiles = listOf(0x01, 0x02, 0x03)
 
-        for (recFile in recordFiles) {
-            try {
-                val cmdStart = byteArrayOf(0x90.toByte(), 0xBB.toByte(), 0x00, 0x00, 0x07, recFile.toByte(), 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-                val respStart = channel.transceive(cmdStart)
-                val sb = StringBuilder()
+        // Brizzi cyclic records reside in App 020000, fallback to 010000, 160000, or 030000
+        val targetApps = listOf(
+            byteArrayOf(0x90.toByte(), 0x5A, 0x00, 0x00, 0x03, 0x02, 0x00, 0x00, 0x00),
+            byteArrayOf(0x90.toByte(), 0x5A, 0x00, 0x00, 0x03, 0x01, 0x00, 0x00, 0x00),
+            byteArrayOf(0x90.toByte(), 0x5A, 0x00, 0x00, 0x03, 0x16, 0x00, 0x00, 0x00),
+            byteArrayOf(0x90.toByte(), 0x5A, 0x00, 0x00, 0x03, 0x03, 0x00, 0x00, 0x00)
+        )
 
-                if (respStart.isDesfireSuccess() || respStart.hasStatus(0x91, 0xAF)) {
-                    sb.append(respStart.payload().toHexString())
-                    var more = respStart.hasStatus(0x91, 0xAF)
-                    var guard = 0
-                    while (more && guard++ < 32) {
-                        val cmdNext = byteArrayOf(0x90.toByte(), 0xAF.toByte(), 0x00, 0x00, 0x00)
-                        val nextResp = channel.transceive(cmdNext)
-                        if (nextResp.size >= 2 && nextResp[nextResp.size - 2] == 0x91.toByte()) {
-                            more = nextResp.hasStatus(0x91, 0xAF)
-                            sb.append(nextResp.payload().toHexString())
-                        } else break
-                    }
-                }
-
-                val rawLog = sb.toString()
-                if (rawLog.length >= 64) {
-                    val totalRecords = rawLog.length / 64
-                    for (idx in 0 until totalRecords) {
-                        val i = idx * 64
-                        val record = rawLog.substring(i, i + 64)
-                        val dateHex = record.substring(32, 38)
-                        val timeHex = record.substring(38, 44)
-                        val typeHex = record.substring(44, 46)
-                        val amountHex = record.substring(46, 52)
-                        val balHex4 = if (record.length >= 60) record.substring(52, 60) else ""
-                        val balHex3 = if (record.length >= 58) record.substring(52, 58) else ""
-                        val tidHex = if (record.length >= 12) record.substring(4, 12) else null
-
-                        val dateObj = TxDates.parseBcdDateTime(dateHex, timeHex)
-                            ?: TxDates.parseHexDateTime(dateHex, timeHex)
-                            ?: continue
-
-                        val amount = reverseHex(amountHex).toLongOrNull(16) ?: 0L
-                        val isTopUp = typeHex.equals("EC", ignoreCase = true) || typeHex.equals("ED", ignoreCase = true)
-
-                        val b4 = if (balHex4.length == 8) reverseHex(balHex4).toLongOrNull(16) else null
-                        val b3 = if (balHex3.length == 6) reverseHex(balHex3).toLongOrNull(16) else null
-                        val txBal = when {
-                            b4 != null && b4 in 0..20_000_000L -> b4
-                            b3 != null && b3 in 0..20_000_000L -> b3
-                            else -> null
-                        }
-
-                        if (amount > 0 || txBal != null) {
-                            history.add(
-                                CardTransactionItem(
-                                    type = if (isTopUp) "Top up" else "Payment",
-                                    amount = amount,
-                                    balance = txBal,
-                                    date = TxDates.formatDate(dateObj),
-                                    time = TxDates.formatTime(dateObj),
-                                    terminalId = tidHex?.takeIf { it.isNotBlank() && it != "00000000" }
-                                )
-                            )
-                        }
-                    }
-                }
-
-                if (history.isNotEmpty()) {
-                    break
-                }
-            } catch (e: Exception) {
-                log.append("Brizzi log file $recFile err: ${e.message}\n")
+        for (appCmd in targetApps) {
+            val appResp = channel.transceive(appCmd)
+            if (!appResp.isDesfireSuccess() && !appResp.isSuccess()) {
+                continue
             }
+
+            // Probe available files in this app or default to 0x01, 0x00, 0x02
+            val candidateFiles = mutableListOf(0x01, 0x00, 0x02, 0x03)
+            val cmdGetFiles = byteArrayOf(0x90.toByte(), 0x6F.toByte(), 0x00, 0x00, 0x00)
+            val filesResp = channel.transceive(cmdGetFiles)
+            if ((filesResp.isDesfireSuccess() || filesResp.isSuccess()) && filesResp.payload().isNotEmpty()) {
+                val foundFiles = filesResp.payload().map { it.toInt() and 0xFF }
+                candidateFiles.clear()
+                candidateFiles.addAll(foundFiles)
+                if (0x01 !in candidateFiles) candidateFiles.add(0, 0x01)
+            }
+
+            for (recFile in candidateFiles) {
+                try {
+                    val readCommands = listOf(
+                        // 13-byte standard ReadRecords (all records)
+                        byteArrayOf(0x90.toByte(), 0xBB.toByte(), 0x00, 0x00, 0x07, recFile.toByte(), 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00),
+                        // 12-byte ReadRecords without Le
+                        byteArrayOf(0x90.toByte(), 0xBB.toByte(), 0x00, 0x00, 0x07, recFile.toByte(), 0x00, 0x00, 0x00, 0x00, 0x00, 0x00),
+                        // 13-byte ReadRecords (up to 10 records)
+                        byteArrayOf(0x90.toByte(), 0xBB.toByte(), 0x00, 0x00, 0x07, recFile.toByte(), 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00),
+                        // Fallback: ReadData standard file
+                        byteArrayOf(0x90.toByte(), 0xBD.toByte(), 0x00, 0x00, 0x07, recFile.toByte(), 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+                    )
+
+                    for (cmdStart in readCommands) {
+                        val respStart = channel.transceive(cmdStart)
+                        val sb = StringBuilder()
+
+                        if (respStart.isDesfireSuccess() || respStart.hasStatus(0x91, 0xAF)) {
+                            sb.append(respStart.payload().toHexString())
+                            var more = respStart.hasStatus(0x91, 0xAF)
+                            var guard = 0
+                            while (more && guard++ < 32) {
+                                val cmdNext = byteArrayOf(0x90.toByte(), 0xAF.toByte(), 0x00, 0x00, 0x00)
+                                val nextResp = channel.transceive(cmdNext)
+                                if (nextResp.size >= 2 && (nextResp[nextResp.size - 2].toInt() and 0xFF) == 0x91) {
+                                    more = nextResp.hasStatus(0x91, 0xAF)
+                                    sb.append(nextResp.payload().toHexString())
+                                } else break
+                            }
+                        }
+
+                        val rawLog = sb.toString()
+                        if (rawLog.length >= 64) {
+                            val parsed = parseBrizziRecords(rawLog)
+                            if (parsed.isNotEmpty()) {
+                                history.addAll(parsed)
+                                log.append("Brizzi history found in app ${appCmd.toHexString()}, file $recFile: ${parsed.size} records\n")
+                                break
+                            }
+                        }
+                    }
+
+                    if (history.isNotEmpty()) break
+                } catch (e: Exception) {
+                    log.append("Brizzi log file $recFile err: ${e.message}\n")
+                }
+            }
+
+            if (history.isNotEmpty()) break
         }
 
         return history
             .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.type}" }
             .sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
+    }
+
+    private fun parseBrizziRecords(rawLog: String): List<CardTransactionItem> {
+        val list = mutableListOf<CardTransactionItem>()
+        val recordLen = 64
+        val totalRecords = rawLog.length / recordLen
+
+        for (idx in 0 until totalRecords) {
+            val i = idx * recordLen
+            val record = rawLog.substring(i, i + recordLen)
+            val dateHex = record.substring(32, 38)
+            val timeHex = record.substring(38, 44)
+            val typeHex = record.substring(44, 46)
+            val amountHex = record.substring(46, 52)
+            val balHex4 = if (record.length >= 60) record.substring(52, 60) else ""
+            val balHex3 = if (record.length >= 58) record.substring(52, 58) else ""
+            val tidHex = if (record.length >= 12) record.substring(4, 12) else null
+
+            val dateObj = parseDateCandidate(dateHex, timeHex) ?: continue
+
+            val amount = reverseHex(amountHex).toLongOrNull(16) ?: 0L
+            val isTopUp = typeHex.equals("EC", ignoreCase = true) ||
+                    typeHex.equals("ED", ignoreCase = true) ||
+                    typeHex.equals("02", ignoreCase = true)
+
+            val b4 = if (balHex4.length == 8) reverseHex(balHex4).toLongOrNull(16) else null
+            val b3 = if (balHex3.length == 6) reverseHex(balHex3).toLongOrNull(16) else null
+            val txBal = when {
+                b4 != null && b4 in 0..20_000_000L -> b4
+                b3 != null && b3 in 0..20_000_000L -> b3
+                else -> null
+            }
+
+            if (amount > 0 || txBal != null) {
+                list.add(
+                    CardTransactionItem(
+                        type = if (isTopUp) "Top up" else "Payment",
+                        amount = amount,
+                        balance = txBal,
+                        date = TxDates.formatDate(dateObj),
+                        time = TxDates.formatTime(dateObj),
+                        terminalId = tidHex?.takeIf { it.isNotBlank() && it != "00000000" }
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    private fun parseDateCandidate(dateHex: String, timeHex: String): java.util.Date? {
+        if (dateHex == "000000" || timeHex == "000000") return null
+
+        // 1. Standard BCD ddMMyy
+        TxDates.parseBcdDateTime(dateHex, timeHex)?.let { return it }
+
+        // 2. BCD yyMMdd
+        try {
+            val y = dateHex.substring(0, 2).toInt() + 2000
+            val m = dateHex.substring(2, 4).toInt() - 1
+            val d = dateHex.substring(4, 6).toInt()
+            val h = timeHex.substring(0, 2).toInt()
+            val min = timeHex.substring(2, 4).toInt()
+            val s = timeHex.substring(4, 6).toInt()
+            if (m in 0..11 && d in 1..31 && h in 0..23 && min in 0..59 && s in 0..59) {
+                val cal = java.util.Calendar.getInstance(TxDates.JAKARTA)
+                cal.set(y, m, d, h, min, s)
+                cal.set(java.util.Calendar.MILLISECOND, 0)
+                return cal.time
+            }
+        } catch (_: Exception) {}
+
+        // 3. Hex ddMMyy
+        TxDates.parseHexDateTime(dateHex, timeHex)?.let { return it }
+
+        return null
     }
 }
