@@ -76,6 +76,9 @@ object TerminalCatalog {
         // Filter out unmapped station tokens like "Station 0x1234"
         if (trimmed.startsWith("Station 0x", ignoreCase = true)) return false
 
+        // Filter out handheld terminal hardware prefixes like "HT0", "HT01"
+        if (trimmed.startsWith("HT0", ignoreCase = true)) return false
+
         // Filter out raw hexadecimal strings (e.g. "01A4F29B", "20202020")
         val isAllHex = trimmed.length >= 4 && trimmed.all {
             it in '0'..'9' || it in 'A'..'F' || it in 'a'..'f'
@@ -114,6 +117,9 @@ object TerminalCatalog {
         // 2. Known static catalog
         val fromCatalog = KNOWN_TERMINALS[trimmed] ?: KNOWN_TERMINALS[trimmed.uppercase()]
         if (!fromCatalog.isNullOrBlank()) return fromCatalog
+
+        // Handheld terminal hardware prefix (e.g. HT0) -> Mask as unknown
+        if (trimmed.startsWith("HT0", ignoreCase = true)) return unknownLabel
 
         // 3. Pre-decoded readable name
         if (isDecodedHumanName(trimmed)) return trimmed

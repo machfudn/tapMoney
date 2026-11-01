@@ -36,6 +36,16 @@ class TerminalCatalogTest {
 
         val resolvedSpacesHex = TerminalCatalog.resolveLocation("20202020", emptyMap(), "Tidak dikenali")
         assertEquals("Tidak dikenali", resolvedSpacesHex)
+
+        // HT0 / ht0 terminal hardware codes masked as unknown
+        val resolvedHt0 = TerminalCatalog.resolveLocation("HT0", emptyMap(), "Tidak dikenali")
+        assertEquals("Tidak dikenali", resolvedHt0)
+
+        val resolvedHt0Lower = TerminalCatalog.resolveLocation("ht0", emptyMap(), "Tidak dikenali")
+        assertEquals("Tidak dikenali", resolvedHt0Lower)
+
+        val resolvedHt0Prefix = TerminalCatalog.resolveLocation("HT0194", emptyMap(), "Tidak dikenali")
+        assertEquals("Tidak dikenali", resolvedHt0Prefix)
     }
 
     @Test
@@ -58,6 +68,8 @@ class TerminalCatalogTest {
         assertFalse(TerminalCatalog.isDecodedHumanName("A1B2C3D4"))
         assertFalse(TerminalCatalog.isDecodedHumanName("01A4F29B"))
         assertFalse(TerminalCatalog.isDecodedHumanName("Station 0x9999"))
+        assertFalse(TerminalCatalog.isDecodedHumanName("HT0"))
+        assertFalse(TerminalCatalog.isDecodedHumanName("ht0"))
         assertFalse(TerminalCatalog.isDecodedHumanName("   "))
     }
 }
