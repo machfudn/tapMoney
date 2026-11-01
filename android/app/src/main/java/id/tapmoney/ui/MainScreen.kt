@@ -454,15 +454,23 @@ fun CardVisualWidget(
 ) {
     val context = LocalContext.current
     val issuer = currentCard?.issuer ?: CardIssuer.UNKNOWN
-    val cardRes = when (issuer) {
-        CardIssuer.MANDIRI -> R.drawable.emoney
-        CardIssuer.BCA -> R.drawable.flazz
-        CardIssuer.BRI -> R.drawable.brizzi
-        CardIssuer.BNI -> R.drawable.tapcash
-        CardIssuer.KCI -> R.drawable.kmt
-        CardIssuer.MEGA -> R.drawable.megacash
-        CardIssuer.DKI -> R.drawable.jaklingko
-        else -> null
+
+    val cardColor = when (issuer) {
+        CardIssuer.BCA -> Color(0xFF005CA9)
+        CardIssuer.MANDIRI -> Color(0xFF003876)
+        CardIssuer.BRI -> Color(0xFF00529C)
+        CardIssuer.BNI -> Color(0xFFF15A24)
+        CardIssuer.DKI -> Color(0xFFE31E24)
+        CardIssuer.KCI -> Color(0xFFDA251D)
+        CardIssuer.MEGA -> Color(0xFFF37023)
+        CardIssuer.MRTJ -> Color(0xFF005BAA)
+        CardIssuer.CEPAS -> Color(0xFF6B2D82)
+        CardIssuer.SUICA -> Color(0xFF2E7D32)
+        CardIssuer.EDY -> Color(0xFF000059)
+        CardIssuer.TMONEY -> Color(0xFFD32F2F)
+        CardIssuer.CHINA_TRANSIT -> Color(0xFFC62828)
+        CardIssuer.OPAL -> Color(0xFF0072CE)
+        else -> Color(0xFF1E293B)
     }
 
     val logoRes = when (issuer) {
@@ -480,35 +488,10 @@ fun CardVisualWidget(
         modifier = Modifier
             .fillMaxWidth()
             .height(190.dp)
-            .neoCard(bgColor = surfaceColor, borderColor = borderColor, shadowOffset = 4.dp, cornerRadius = 12.dp)
+            .neoCard(bgColor = cardColor, borderColor = borderColor, shadowOffset = 4.dp, cornerRadius = 12.dp)
             .clip(RoundedCornerShape(12.dp))
+            .background(cardColor)
     ) {
-        if (cardRes != null) {
-            Image(
-                painter = painterResource(id = cardRes),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        when (issuer) {
-                            CardIssuer.MRTJ -> Color(0xFF005BAA)
-                            CardIssuer.CEPAS -> Color(0xFF6B2D82)
-                            CardIssuer.SUICA -> Color(0xFF2E7D32)
-                            CardIssuer.EDY -> Color(0xFF000059)
-                            CardIssuer.TMONEY -> Color(0xFFD32F2F)
-                            CardIssuer.CHINA_TRANSIT -> Color(0xFFC62828)
-                            CardIssuer.OPAL -> Color(0xFF0072CE)
-                            else -> NeoColors.Yellow
-                        }
-                    )
-            )
-        }
-
         // Overlay Content
         Column(
             modifier = Modifier
@@ -537,13 +520,9 @@ fun CardVisualWidget(
                         contentScale = ContentScale.Fit
                     )
                 } else {
-                    val isDarkBg = issuer in listOf(
-                        CardIssuer.MRTJ, CardIssuer.CEPAS, CardIssuer.SUICA,
-                        CardIssuer.EDY, CardIssuer.TMONEY, CardIssuer.CHINA_TRANSIT, CardIssuer.OPAL
-                    )
                     Text(
                         text = currentCard?.cardType ?: "NFC CARD",
-                        color = if (isDarkBg) Color.White else Color.Black,
+                        color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Black
                     )

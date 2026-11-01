@@ -12,5 +12,6 @@
   * Generator PDF A4 Neobrutalisme (`ReceiptExporter`) dengan badge header, ringkasan saldo, dan badge transaksi berwarna.
 * **Internasionalisasi Dwibahasa (i18n)**:
   * Dukungan dwibahasa penuh (Bahasa Indonesia & English) via `AppStrings` serta penyesuaian TTS otomatis.
-* **Interaksi Privasi Kartu Visual**:
+* **Interaksi Privasi & Visual Kartu Minimalis**:
+  * Eliminasi aset grafis kartu berukuran penuh, digantikan blok warna identitas korporat masing-masing penerbit kartu dengan logo resmi di pojok kanan atas.
   * Toggle sensor nomor kartu dan saldo interaktif langsung pada kartu utama.
