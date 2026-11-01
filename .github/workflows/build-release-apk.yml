@@ -149,28 +149,45 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Generate dynamic release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          body_file="android/RELEASE_NOTES.md"
+          if [[ ! -f "$body_file" ]]; then
+            body_file="RELEASE_NOTES.md"
+          fi
+
+          output_file="release_body.md"
+          echo "## TapMoney v${VERSION_NAME}" > "$output_file"
+          echo "" >> "$output_file"
+          echo "Rilis resmi aplikasi TapMoney Info untuk Android (Build Code: ${VERSION_CODE})." >> "$output_file"
+          echo "" >> "$output_file"
+          echo "### Ringkasan Rilis" >> "$output_file"
+
+          if [[ -f "$body_file" && -s "$body_file" ]]; then
+            cat "$body_file" >> "$output_file"
+          else
+            echo "* Pemindaian kartu uang elektronik NFC (Mandiri e-Money, BCA Flazz, BRI Brizzi, BNI TapCash, KMT Commuter Line, MegaCash)." >> "$output_file"
+            echo "* Deteksi status koneksi dan adapter NFC secara langsung." >> "$output_file"
+            echo "* Dukungan tema tampilan Sistem, Terang, dan Gelap." >> "$output_file"
+            echo "* Penyimpanan riwayat pemindaian lokal mandiri." >> "$output_file"
+          fi
+
+          echo "" >> "$output_file"
+          echo "### Informasi Berkas" >> "$output_file"
+          echo "* Nama berkas: \`TapMoney-v${VERSION_NAME}.apk\`" >> "$output_file"
+          echo "* Kode versi: \`${VERSION_CODE}\`" >> "$output_file"
+          echo "* Commit SHA: \`${{ github.sha }}\`" >> "$output_file"
+
       - name: Publish GitHub Release
         if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version_name) }}
           name: TapMoney v${{ steps.version.outputs.version_name }}
-          body: |
-            ## TapMoney v${{ steps.version.outputs.version_name }}
-
-            Rilis resmi aplikasi TapMoney Info untuk Android.
-
-            ### Ringkasan Rilis
-            * Penyelarasan versioning dinamis sesuai metadata build v${{ steps.version.outputs.version_name }} (Build Code: ${{ steps.version.outputs.version_code }}).
-            * Pemindaian kartu uang elektronik NFC (Mandiri e-Money, BCA Flazz, BRI Brizzi, BNI TapCash, KMT Commuter Line, MegaCash).
-            * Deteksi status koneksi dan adapter NFC secara langsung.
-            * Dukungan tema tampilan Sistem, Terang, dan Gelap.
-            * Penyimpanan riwayat pemindaian lokal mandiri.
-
-            ### Informasi Berkas
-            * Nama berkas: `TapMoney-v${{ steps.version.outputs.version_name }}.apk`
-            * Kode versi: `${{ steps.version.outputs.version_code }}`
-            * Commit SHA: `${{ github.sha }}`
+          body_path: release_body.md
           files: TapMoney-v${{ steps.version.outputs.version_name }}.apk
           draft: false
           prerelease: false
