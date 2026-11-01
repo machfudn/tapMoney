@@ -100,6 +100,31 @@ class ReceiptFormatterTest {
 
         assertTrue(text.contains("- Rp"))
         assertTrue(text.contains("+ Rp"))
+        assertTrue(text.contains("Saldo Akhir"))
+    }
+
+    @Test
+    fun testResolveEndingBalancesLedgerPropagation() {
+        val history = listOf(
+            CardTransactionItem("Payment", 10000, null, "01/11", "10:00"),
+            CardTransactionItem("Payment", 15000, null, "01/11", "09:00"),
+            CardTransactionItem("Top up", 50000, null, "01/11", "08:00")
+        )
+        val card = sampleCard(balance = 75000L, history = history)
+        val resolved = ReceiptFormatter.resolveEndingBalances(card)
+
+        assertEquals(3, resolved.size)
+        // tx 0: Payment 10k, ending balance is current card balance 75k
+        assertEquals(75000L, resolved[0].balance)
+        // tx 1: Payment 15k, ending balance before tx 0 was 75k + 10k = 85k
+        assertEquals(85000L, resolved[1].balance)
+        // tx 2: Top up 50k, ending balance before tx 1 was 85k + 15k = 100k
+        assertEquals(100000L, resolved[2].balance)
+
+        val receiptText = ReceiptFormatter.formatTextReceipt(card, isEnglish = false)
+        assertTrue(receiptText.contains("Saldo Akhir"))
+        assertTrue(receiptText.contains("75.000"))
+        assertTrue(receiptText.contains("85.000"))
     }
 
     @Test

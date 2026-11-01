@@ -34,7 +34,7 @@ object ReceiptExporter {
         val maxFirstPageRows = 12
         val maxSubsequentPageRows = 22
 
-        val history = card.history
+        val history = ReceiptFormatter.resolveEndingBalances(card)
         val totalPages = if (history.size <= maxFirstPageRows) {
             1
         } else {
@@ -292,7 +292,7 @@ object ReceiptExporter {
 
         paint.textAlign = Paint.Align.RIGHT
         canvas.drawText(if (isEnglish) "AMOUNT" else "NOMINAL", col3X, currentY + 15f, paint)
-        canvas.drawText(if (isEnglish) "BALANCE" else "SISA SALDO", col4X, currentY + 15f, paint)
+        canvas.drawText(if (isEnglish) "ENDING BAL" else "SALDO AKHIR", col4X, currentY + 15f, paint)
         canvas.drawText(if (isEnglish) "LOCATION" else "LOKASI", col5X, currentY + 15f, paint)
         paint.textAlign = Paint.Align.LEFT
 

@@ -1,6 +1,7 @@
 package id.tapmoney.util
 
 import id.tapmoney.model.CardBalanceResult
+import id.tapmoney.model.CardTransactionItem
 import id.tapmoney.ui.formatCardNumber
 import id.tapmoney.ui.formatRupiah
 import java.io.ByteArrayOutputStream
@@ -43,6 +44,54 @@ object ReceiptFormatter {
         }
     }
 
+    fun resolveEndingBalances(card: CardBalanceResult): List<CardTransactionItem> {
+        val items = card.history
+        if (items.isEmpty()) return emptyList()
+        val sorted = items.sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" }).toMutableList()
+
+        if (sorted[0].balance == null && card.balance > 0L) {
+            sorted[0] = sorted[0].copy(balance = card.balance)
+        }
+
+        // Backward propagation (newer to older)
+        for (i in 1 until sorted.size) {
+            if (sorted[i].balance == null) {
+                val prev = sorted[i - 1]
+                if (prev.balance != null) {
+                    val isPrevPayment = !prev.type.contains("Top", true) && !prev.type.contains("Isi", true)
+                    val computed = if (isPrevPayment) {
+                        prev.balance!! + prev.amount
+                    } else {
+                        prev.balance!! - prev.amount
+                    }
+                    if (computed in 0L..100_000_000L) {
+                        sorted[i] = sorted[i].copy(balance = computed)
+                    }
+                }
+            }
+        }
+
+        // Forward propagation (older to newer) if latest balance was null
+        for (i in (sorted.size - 2) downTo 0) {
+            if (sorted[i].balance == null) {
+                val nextOlder = sorted[i + 1]
+                if (nextOlder.balance != null) {
+                    val isCurrentPayment = !sorted[i].type.contains("Top", true) && !sorted[i].type.contains("Isi", true)
+                    val computed = if (isCurrentPayment) {
+                        nextOlder.balance!! - sorted[i].amount
+                    } else {
+                        nextOlder.balance!! + sorted[i].amount
+                    }
+                    if (computed in 0L..100_000_000L) {
+                        sorted[i] = sorted[i].copy(balance = computed)
+                    }
+                }
+            }
+        }
+
+        return sorted
+    }
+
     fun formatTextReceipt(
         card: CardBalanceResult,
         isEnglish: Boolean = false,
@@ -77,11 +126,12 @@ object ReceiptFormatter {
         sb.append(center(historyTitle, lineWidth)).append("\n")
         sb.append(sepSingle).append("\n")
 
-        if (card.history.isEmpty()) {
+        val resolvedHistory = resolveEndingBalances(card)
+        if (resolvedHistory.isEmpty()) {
             val emptyMsg = if (isEnglish) "(No history recorded)" else "(Tidak ada riwayat)"
             sb.append(center(emptyMsg, lineWidth)).append("\n")
         } else {
-            card.history.take(maxTransactions).forEach { tx ->
+            resolvedHistory.take(maxTransactions).forEach { tx ->
                 val isTopUp = tx.type.contains("Top", true) || tx.type.contains("Isi", true)
                 val displayType = if (isTopUp) "Top Up" else (if (isEnglish) "Payment" else "Pembayaran")
                 val dateTime = "${tx.date} ${tx.time}"
@@ -91,7 +141,7 @@ object ReceiptFormatter {
                 sb.append(twoColumn(amtLabel, "$sign ${formatRupiah(tx.amount)}", lineWidth)).append("\n")
 
                 if (tx.balance != null) {
-                    val balLabel = if (isEnglish) "  Balance" else "  Sisa Saldo"
+                    val balLabel = if (isEnglish) "  Ending Bal" else "  Saldo Akhir"
                     sb.append(twoColumn(balLabel, formatRupiah(tx.balance), lineWidth)).append("\n")
                 }
                 val unknownText = if (isEnglish) "Unknown" else "Tidak dikenali"
@@ -178,22 +228,24 @@ object ReceiptFormatter {
         line(historyTitle)
         line(sepSingle)
 
-        if (card.history.isEmpty()) {
+        val resolvedHistory = resolveEndingBalances(card)
+        if (resolvedHistory.isEmpty()) {
             val emptyMsg = if (isEnglish) "  (No history recorded)" else "  (Tidak ada riwayat)"
             line(emptyMsg)
             line(sepSingle)
         } else {
-            card.history.take(maxTransactions).forEach { tx ->
+            resolvedHistory.take(maxTransactions).forEach { tx ->
                 val dateTime = "${tx.date} ${tx.time}"
-                line(twoColumn(dateTime, tx.type, lineWidth))
-
                 val isTopUp = tx.type.contains("Top", true) || tx.type.contains("Isi", true)
+                val displayType = if (isTopUp) "Top Up" else (if (isEnglish) "Payment" else "Pembayaran")
+                line(twoColumn(dateTime, displayType, lineWidth))
+
                 val sign = if (isTopUp) "+" else "-"
                 val amtLabel = if (isEnglish) "  Amount" else "  Nominal"
                 line(twoColumn(amtLabel, "$sign ${formatRupiah(tx.amount)}", lineWidth))
 
                 if (tx.balance != null) {
-                    val balLabel = if (isEnglish) "  Balance" else "  Sisa Saldo"
+                    val balLabel = if (isEnglish) "  Ending Bal" else "  Saldo Akhir"
                     line(twoColumn(balLabel, formatRupiah(tx.balance), lineWidth))
                 }
                 val unknownText = if (isEnglish) "Unknown" else "Tidak dikenali"

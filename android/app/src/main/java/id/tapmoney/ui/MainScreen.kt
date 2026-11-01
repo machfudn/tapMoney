@@ -263,7 +263,7 @@ fun MainScreen(
 
                 // Tab 1: Chip Physical History
                 if (activeTab == "chip") {
-                    val history = currentCard?.history ?: emptyList()
+                    val history = currentCard?.let { ReceiptFormatter.resolveEndingBalances(it) } ?: emptyList()
                     if (history.isNotEmpty()) {
                         val isEn = resolveIsEnglish(settings.appLanguage)
                         val grouped = groupHistoryByDate(history, isEn)
