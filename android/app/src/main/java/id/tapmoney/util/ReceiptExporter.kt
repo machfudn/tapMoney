@@ -124,7 +124,7 @@ object ReceiptExporter {
             paint.color = COLOR_BLACK
             paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             paint.textSize = 20f
-            canvas.drawText("TAPMONEY INFO", cardLeft + 16f, currentY + 30f, paint)
+            canvas.drawText("TAP MONEY", cardLeft + 16f, currentY + 30f, paint)
 
             paint.textSize = 8.5f
             val subTitle = if (isEnglish) "OFFICIAL ELECTRONIC MONEY RECEIPT" else "STRUK INFORMASI SALDO ELEKTRONIK"
@@ -263,9 +263,9 @@ object ReceiptExporter {
             paint.textSize = 10f
             paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             val contTitle = if (isEnglish) {
-                "TAPMONEY INFO - TRANSACTION HISTORY CONTINUED (PAGE $pageIndex OF $totalPages)"
+                "TAP MONEY - TRANSACTION HISTORY CONTINUED (PAGE $pageIndex OF $totalPages)"
             } else {
-                "TAPMONEY INFO - LANJUTAN RIWAYAT TRANSAKSI (HALAMAN $pageIndex DARI $totalPages)"
+                "TAP MONEY - LANJUTAN RIWAYAT TRANSAKSI (HALAMAN $pageIndex DARI $totalPages)"
             }
             canvas.drawText(contTitle, cardLeft + 16f, currentY + 24f, paint)
 
@@ -386,9 +386,9 @@ object ReceiptExporter {
         paint.typeface = Typeface.DEFAULT
 
         val noticeLine1 = if (isEnglish) {
-            "This official receipt was generated automatically by TapMoney Info using direct NFC chip communication."
+            "This official receipt was generated automatically by Tap Money using direct NFC chip communication."
         } else {
-            "Struk ini diterbitkan otomatis oleh TapMoney Info melalui komunikasi langsung sensor NFC dengan chip kartu."
+            "Struk ini diterbitkan otomatis oleh Tap Money melalui komunikasi langsung sensor NFC dengan chip kartu."
         }
         val noticeLine2 = if (isEnglish) {
             "Card balance and transaction logs reflect stored-value data on the physical chip at scan time."

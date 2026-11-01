@@ -103,7 +103,7 @@ object ReceiptFormatter {
         val sepSingle = "-".repeat(lineWidth)
 
         sb.append(sepDouble).append("\n")
-        sb.append(center("TAPMONEY INFO", lineWidth)).append("\n")
+        sb.append(center("TAP MONEY", lineWidth)).append("\n")
         val subTitle = if (isEnglish) "OFFICIAL BALANCE RECEIPT" else "STRUK INFORMASI SALDO"
         sb.append(center(subTitle, lineWidth)).append("\n")
         sb.append(sepDouble).append("\n")
@@ -190,7 +190,7 @@ object ReceiptFormatter {
         cmd(esc, 0x61, 0x01)
         cmd(gs, 0x21, 0x11)
         cmd(esc, 0x45, 0x01)
-        line("TAPMONEY INFO")
+        line("TAP MONEY")
 
         cmd(gs, 0x21, 0x00)
         cmd(esc, 0x45, 0x00)

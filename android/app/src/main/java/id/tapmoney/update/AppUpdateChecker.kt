@@ -28,7 +28,7 @@ sealed interface UpdateCheckResult {
 object AppUpdateChecker {
 
     private const val GITHUB_LATEST_RELEASE_URL =
-        "https://api.github.com/repos/machfudn/tap-money-info/releases/latest"
+        "https://api.github.com/repos/machfudn/tapMoney/releases/latest"
 
     fun parseSemVer(ver: String): Triple<Int, Int, Int>? {
         val clean = ver.trim().removePrefix("v").removePrefix("V")

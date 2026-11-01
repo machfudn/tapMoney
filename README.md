@@ -4,8 +4,8 @@
 
 # Tap Money
 
-[![Android CI Release](https://github.com/machfudn/tap-money-info/actions/workflows/build-release-apk.yml/badge.svg)](https://github.com/machfudn/tap-money-info/actions/workflows/build-release-apk.yml)
-[![Version](https://img.shields.io/badge/version-v1.1.8-blue.svg)](#)
+[![Android CI Release](https://github.com/machfudn/tapMoney/actions/workflows/build-release-apk.yml/badge.svg)](https://github.com/machfudn/tapMoney/actions/workflows/build-release-apk.yml)
+[![Version](https://img.shields.io/badge/version-v1.1.9-blue.svg)](#)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-purple.svg?logo=kotlin)](#)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2024.10.01-4285F4.svg?logo=android)](#)
 [![Target SDK](https://img.shields.io/badge/targetSdk-35%20(Android%2015)-green.svg)](#)
@@ -103,7 +103,7 @@ Seluruh data hasil pemindaian dan penamaan terminal disimpan secara lokal di per
 Struktur paket kode sumber Kotlin:
 
 ```text
-tap-money-info/
+tapMoney/
 ├── android/
 │   ├── app/
 │   │   ├── src/main/
@@ -153,8 +153,8 @@ tap-money-info/
 │   │   └── build.gradle                         # Konfigurasi build module, Compose compiler, & dependensi
 │   ├── build.gradle                             # Root Gradle buildscript (Kotlin 2.0.21, AGP 8.13.0)
 │   ├── settings.gradle                          # Pengaturan modul Gradle
-│   ├── version.properties                       # Konfigurasi versi dinamis rilis (v1.1.8 / 10108)
-│   ├── RELEASE_NOTES.md                         # Catatan rilis v1.1.8
+│   ├── version.properties                       # Konfigurasi versi dinamis rilis (v1.1.9 / 10109)
+│   ├── RELEASE_NOTES.md                         # Catatan rilis v1.1.9
 │   └── gradle.properties                        # Optimasi JVM & compiler arguments
 ├── README.md                                    # Dokumentasi Bahasa Indonesia
 └── README.en.md                                 # English Documentation
@@ -213,7 +213,7 @@ Membaca block memory tanpa enkripsi (*Read Without Encryption*) pada Service Cod
 
 ### 1. Navigasi ke Folder Android
 ```bash
-cd tap-money-info/android
+cd tapMoney/android
 ```
 
 ### 2. Kompilasi Debug APK
@@ -242,12 +242,12 @@ Kompilasi varian release:
 
 Tandatangani file APK menggunakan `apksigner`:
 ```bash
-apksigner sign --ks release.keystore --ks-pass pass:YOUR_PASSWORD --out TapMoney-v1.1.8.apk android/app/build/outputs/apk/release/app-release-unsigned.apk
+apksigner sign --ks release.keystore --ks-pass pass:YOUR_PASSWORD --out TapMoney-v1.1.9.apk android/app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
 Verifikasi integritas tanda tangan:
 ```bash
-apksigner verify --verbose TapMoney-v1.1.8.apk
+apksigner verify --verbose TapMoney-v1.1.9.apk
 ```
 
 ---
@@ -255,5 +255,5 @@ apksigner verify --verbose TapMoney-v1.1.8.apk
 ## Author
 
 **Machfudin**  
-- System Architect & Lead Developer  
+- Software Engineer  
 - GitHub: [@machfudn](https://github.com/machfudn)

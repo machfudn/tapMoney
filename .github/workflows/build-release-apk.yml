@@ -162,7 +162,7 @@ jobs:
           output_file="release_body.md"
           echo "## TapMoney v${VERSION_NAME}" > "$output_file"
           echo "" >> "$output_file"
-          echo "Rilis resmi aplikasi TapMoney Info untuk Android (Build Code: ${VERSION_CODE})." >> "$output_file"
+          echo "Rilis resmi aplikasi Tap Money untuk Android (Build Code: ${VERSION_CODE})." >> "$output_file"
           echo "" >> "$output_file"
           echo "### Ringkasan Rilis" >> "$output_file"
 

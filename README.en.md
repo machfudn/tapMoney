@@ -4,8 +4,8 @@
 
 # Tap Money
 
-[![Android CI Release](https://github.com/machfudn/tap-money-info/actions/workflows/build-release-apk.yml/badge.svg)](https://github.com/machfudn/tap-money-info/actions/workflows/build-release-apk.yml)
-[![Version](https://img.shields.io/badge/version-v1.1.8-blue.svg)](#)
+[![Android CI Release](https://github.com/machfudn/tapMoney/actions/workflows/build-release-apk.yml/badge.svg)](https://github.com/machfudn/tapMoney/actions/workflows/build-release-apk.yml)
+[![Version](https://img.shields.io/badge/version-v1.1.9-blue.svg)](#)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-purple.svg?logo=kotlin)](#)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2024.10.01-4285F4.svg?logo=android)](#)
 [![Target SDK](https://img.shields.io/badge/targetSdk-35%20(Android%2015)-green.svg)](#)
@@ -103,7 +103,7 @@ All data is stored locally in an on-device **SQLite database** (`tap_money.db`),
 The codebase is structured under modular Kotlin packages:
 
 ```text
-tap-money-info/
+tapMoney/
 ├── android/
 │   ├── app/
 │   │   ├── src/main/
@@ -153,8 +153,8 @@ tap-money-info/
 │   │   └── build.gradle                         # App Gradle build configuration (Compose, Java 21)
 │   ├── build.gradle                             # Root project buildscript (Kotlin 2.0.21, AGP 8.13.0)
 │   ├── settings.gradle                          # Gradle settings
-│   ├── version.properties                       # Dynamic release version config (v1.1.8 / 10108)
-│   ├── RELEASE_NOTES.md                         # Release notes for v1.1.8
+│   ├── version.properties                       # Dynamic release version config (v1.1.9 / 10109)
+│   ├── RELEASE_NOTES.md                         # Release notes for v1.1.9
 │   └── gradle.properties                        # JVM options and Kotlin compiler flags
 ├── README.md                                    # Indonesian Documentation
 └── README.en.md                                 # English Documentation
@@ -210,7 +210,7 @@ Executes *Read Without Encryption* command (`0x06`) targeting Service Code `0x22
 
 ### 1. Navigate to Android Workspace
 ```bash
-cd tap-money-info/android
+cd tapMoney/android
 ```
 
 ### 2. Compile Debug APK
@@ -239,12 +239,12 @@ Compile the release variant:
 
 Sign the output package using `apksigner`:
 ```bash
-apksigner sign --ks release.keystore --ks-pass pass:YOUR_PASSWORD --out TapMoney-v1.1.8.apk android/app/build/outputs/apk/release/app-release-unsigned.apk
+apksigner sign --ks release.keystore --ks-pass pass:YOUR_PASSWORD --out TapMoney-v1.1.9.apk android/app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
-Verify package integrity:
+Verify signature integrity:
 ```bash
-apksigner verify --verbose TapMoney-v1.1.8.apk
+apksigner verify --verbose TapMoney-v1.1.9.apk
 ```
 
 ---
@@ -252,5 +252,5 @@ apksigner verify --verbose TapMoney-v1.1.8.apk
 ## Author
 
 **Machfudin**  
-- System Architect & Lead Developer  
+- Software Engineer  
 - GitHub: [@machfudn](https://github.com/machfudn)

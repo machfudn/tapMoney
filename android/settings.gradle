@@ -1,2 +1,2 @@
-rootProject.name = "tap-money-info"
+rootProject.name = "tapMoney"
 include ':app'
