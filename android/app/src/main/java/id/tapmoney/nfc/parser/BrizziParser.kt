@@ -45,11 +45,17 @@ class BrizziParser : EmoneyParser {
         var balance = extractBalance(channel, log)
         val history = readHistory(channel, log)
 
-        if ((balance == null || balance == 0L) && history.isNotEmpty()) {
+        if (balance == null && history.isNotEmpty()) {
+            val latest = history.firstOrNull { it.balance != null }
+            if (latest?.balance != null) {
+                balance = latest.balance
+                log.append("Brizzi balance recovered from latest history record: $balance\n")
+            }
+        } else if (balance == 0L && history.isNotEmpty()) {
             val latestWithBal = history.firstOrNull { it.balance != null && it.balance > 0L }
             if (latestWithBal?.balance != null) {
                 balance = latestWithBal.balance
-                log.append("Brizzi balance recovered from latest history record: $balance\n")
+                log.append("Brizzi non-zero balance recovered from history: $balance\n")
             }
         }
 
