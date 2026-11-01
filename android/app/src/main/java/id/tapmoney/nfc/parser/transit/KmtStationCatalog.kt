@@ -81,6 +81,6 @@ object KmtStationCatalog {
     )
 
     fun getStationName(code: Int): String {
-        return STATIONS[code] ?: "Station 0x${code.toString(16).uppercase()}"
+        return STATIONS[code] ?: "Tidak dikenali"
     }
 }

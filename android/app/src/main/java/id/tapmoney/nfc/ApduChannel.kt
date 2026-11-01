@@ -87,3 +87,14 @@ fun extractDigitsFromBcd(data: ByteArray, prefixes: Set<String> = emptySet()): S
     }
     return null
 }
+
+fun extractDigitsFromAscii(data: ByteArray, prefixes: Set<String> = emptySet()): String? {
+    val ascii = String(data, Charsets.US_ASCII)
+    for (offset in 0..ascii.length - 16) {
+        val candidate = ascii.substring(offset, offset + 16)
+        if (candidate.all { it.isDigit() }) {
+            if (prefixes.isEmpty() || prefixes.any(candidate::startsWith)) return candidate
+        }
+    }
+    return null
+}

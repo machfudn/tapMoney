@@ -53,7 +53,7 @@ class TapCashParser : EmoneyParser {
                 val payload = respBal.payload()
                 if (payload.size >= 16) {
                     val candidate = payload.copyOfRange(8, 16).toHexString()
-                    if (!candidate.all { it == '0' || it == 'F' }) {
+                    if (candidate.length == 16 && candidate.all { it.isDigit() }) {
                         cardNumber = candidate
                     }
                 }

@@ -14,6 +14,6 @@ class KmtStationCatalogTest {
 
     @Test
     fun getStationName_returnsFallbackForUnknown() {
-        assertEquals("Station 0x9999", KmtStationCatalog.getStationName(0x9999))
+        assertEquals("Tidak dikenali", KmtStationCatalog.getStationName(0x9999))
     }
 }

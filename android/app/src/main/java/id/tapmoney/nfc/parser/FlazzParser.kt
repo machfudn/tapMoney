@@ -7,6 +7,7 @@ import id.tapmoney.model.CardIssuer
 import id.tapmoney.model.CardTransactionItem
 import id.tapmoney.nfc.ApduChannel
 import id.tapmoney.nfc.TxDates
+import id.tapmoney.nfc.extractDigitsFromAscii
 import id.tapmoney.nfc.extractDigitsFromBcd
 import id.tapmoney.nfc.hexToBytes
 import id.tapmoney.nfc.isSuccess
@@ -35,12 +36,12 @@ class FlazzParser : EmoneyParser {
 
     internal fun parseChannel(channel: ApduChannel, uidHex: String, log: StringBuilder): CardBalanceResult? {
         if (selectApplet(channel, flazzGen2Aid)) {
-            log.append("Detected: BCA Flazz Gen 2\n")
+            log.append("Detected: BCA Flazz\n")
             return parseGen2(channel, uidHex, log)
         }
 
         if (selectApplet(channel, flazzGen1Aid)) {
-            log.append("Detected: BCA Flazz Gen 1 (Terenkripsi)\n")
+            log.append("Detected: BCA Flazz (Terenkripsi)\n")
             return CardBalanceResult(
                 cardType = "BCA Flazz (Terenkripsi)",
                 issuer = CardIssuer.BCA,
@@ -64,16 +65,65 @@ class FlazzParser : EmoneyParser {
         val respBbbb = channel.transceive(cmdBbbb)
         if (!respBbbb.isSuccess()) return null
 
-        val isGen2 = respBbbb.size > 4 && respBbbb[3] == 0x00.toByte()
-        val cardTypeName = if (isGen2) "BCA Flazz Gen 2" else "BCA Flazz Gen 1"
+        val cardTypeName = "BCA Flazz"
 
         // Card number (PAN)
         var cardNumber = uidHex
         try {
-            val respTrack2 = channel.transceive("00B2010C00".hexToBytes())
-            if (respTrack2.isSuccess()) {
-                val candidate = extractDigitsFromBcd(respTrack2.payload(), setOf("6013", "6019"))
-                if (candidate != null) cardNumber = candidate
+            val bbbbPayload = respBbbb.payload()
+            val flazzBins = setOf("6019", "6013", "6011", "6274")
+
+            // 1. Primary: Decompiled eSaldo Info Track 2 extraction (ASCII ;<PAN>=)
+            var candidate = extractTrack2PanFromBbbb(bbbbPayload)
+
+            // 2. Secondary: BCD / ASCII scanners
+            if (candidate == null) {
+                candidate = extractDigitsFromBcd(bbbbPayload, flazzBins)
+                    ?: extractDigitsFromAscii(bbbbPayload, flazzBins)
+                    ?: extractDigitsFromBcd(bbbbPayload)
+                    ?: extractDigitsFromAscii(bbbbPayload)
+            }
+
+            // 3. Fallback: Track 2 EMV record read
+            if (candidate == null) {
+                val respTrack2 = channel.transceive("00B2010C00".hexToBytes())
+                if (respTrack2.isSuccess()) {
+                    candidate = extractTrack2PanFromBbbb(respTrack2.payload())
+                        ?: extractDigitsFromBcd(respTrack2.payload(), flazzBins)
+                        ?: extractDigitsFromAscii(respTrack2.payload(), flazzBins)
+                        ?: extractDigitsFromBcd(respTrack2.payload())
+                }
+            }
+
+            // 4. Fallback: Secondary SFI probes
+            if (candidate == null) {
+                val probes = listOf("00B0820020", "00B0800020", "00B2011400", "00B2010400")
+                for (probe in probes) {
+                    val respProbe = channel.transceive(probe.hexToBytes())
+                    if (respProbe.isSuccess() && respProbe.payload().size >= 8) {
+                        candidate = extractTrack2PanFromBbbb(respProbe.payload())
+                            ?: extractDigitsFromBcd(respProbe.payload(), flazzBins)
+                            ?: extractDigitsFromAscii(respProbe.payload(), flazzBins)
+                        if (candidate != null) break
+                    }
+                }
+            }
+
+            // 5. Fallback: GPN EMV Debit applet probe
+            if (candidate == null) {
+                val emvSelect = channel.transceive("00A4040007A0000000030002".hexToBytes())
+                if (emvSelect.isSuccess()) {
+                    val respEmvTrack2 = channel.transceive("00B2010C00".hexToBytes())
+                    if (respEmvTrack2.isSuccess()) {
+                        candidate = extractTrack2PanFromBbbb(respEmvTrack2.payload())
+                            ?: extractDigitsFromBcd(respEmvTrack2.payload(), flazzBins)
+                            ?: extractDigitsFromAscii(respEmvTrack2.payload(), flazzBins)
+                    }
+                }
+            }
+
+            if (candidate != null && candidate.length in 15..19 && candidate.all { it.isDigit() }) {
+                cardNumber = candidate
             }
         } catch (_: Exception) {}
 
@@ -263,5 +313,40 @@ class FlazzParser : EmoneyParser {
         }
 
         return history.distinctBy { "${it.date}_${it.time}_${it.amount}" }
+    }
+
+    /**
+     * Extracts 16-digit PAN from Flazz Track 2 ASCII pattern (decompiled from eSaldo Info).
+     * Format inside bbbb() payload: ';<PAN>='
+     */
+    private fun extractTrack2PanFromBbbb(payload: ByteArray): String? {
+        if (payload.isEmpty()) return null
+        val bArr2 = ByteArray(payload.size)
+        var i8 = 0
+        for (b in payload) {
+            val i10 = b.toInt() and 0xFF
+            if (i10 in 32..127) {
+                bArr2[i8++] = b
+            } else {
+                bArr2[i8++] = 46.toByte() // '.'
+            }
+        }
+        val str = String(bArr2, 0, i8, Charsets.US_ASCII)
+        val semi = str.indexOf(';')
+        if (semi != -1) {
+            val eq = str.indexOf('=', semi)
+            if (eq != -1 && eq > semi + 1) {
+                val candidate = str.substring(semi + 1, eq).trim()
+                if (candidate.length in 15..19 && candidate.all { it.isDigit() }) {
+                    return candidate
+                }
+            }
+        }
+        val regex = Regex(";?([0-9]{16})=")
+        val match = regex.find(str)
+        if (match != null) {
+            return match.groupValues[1]
+        }
+        return null
     }
 }

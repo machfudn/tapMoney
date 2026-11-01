@@ -42,8 +42,14 @@ class BrizziParser : EmoneyParser {
             val apduInfo = "90BD0000070000000017000000".hexToBytes()
             val respInfo = channel.transceive(apduInfo)
             if (respInfo.isSuccess() && respInfo.size >= 30) {
-                val info = reverseHex(respInfo.payload().toHexString())
-                if (info.length >= 22) cardNumber = info.substring(6, 22)
+                val payloadHex = respInfo.payload().toHexString()
+                val candRaw = if (payloadHex.length >= 22) payloadHex.substring(6, 22) else ""
+                val reversed = reverseHex(payloadHex)
+                val candReversed = if (reversed.length >= 22) reversed.substring(6, 22) else ""
+                when {
+                    candRaw.length == 16 && candRaw.all { it.isDigit() } -> cardNumber = candRaw
+                    candReversed.length == 16 && candReversed.all { it.isDigit() } -> cardNumber = candReversed
+                }
             }
         } catch (_: Exception) {}
 

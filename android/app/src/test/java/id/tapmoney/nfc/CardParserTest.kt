@@ -79,9 +79,40 @@ class CardParserTest {
         )
         val data = FlazzParser().parseChannel(card, "AABBCCDD", StringBuilder())
         assertNotNull(data)
-        assertEquals("BCA Flazz Gen 2", data!!.cardType)
+        assertEquals("BCA Flazz", data!!.cardType)
         assertEquals(123_456L, data.balance)
         assertTrue(data.balanceKnown)
+    }
+
+    @Test
+    fun `flazz gen 2 decodes 16 digit PAN from bbbb payload`() {
+        val card = FakeCard(
+            "00A40400" to "9000",
+            "00A40100" to "9000",
+            "00B08100" to "0000000060190012345678909000",
+            "80320003" to "0001E2409000"
+        )
+        val data = FlazzParser().parseChannel(card, "AABBCCDD", StringBuilder())
+        assertNotNull(data)
+        assertEquals("BCA Flazz", data!!.cardType)
+        assertEquals("6019001234567890", data.cardNumber)
+    }
+
+    @Test
+    fun `flazz gen 2 decodes 16 digit PAN from track 2 ascii delimiter payload`() {
+        // eSaldo Info format: ASCII ;<16-digit PAN>= in bbbb response
+        // ';' is 0x3B, '=' is 0x3D
+        val track2Hex = "00003B363031393030393837363534333231303D3236313230309000"
+        val card = FakeCard(
+            "00A40400" to "9000",
+            "00A40100" to "9000",
+            "00B08100" to track2Hex,
+            "80320003" to "0001E2409000"
+        )
+        val data = FlazzParser().parseChannel(card, "AABBCCDD", StringBuilder())
+        assertNotNull(data)
+        assertEquals("BCA Flazz", data!!.cardType)
+        assertEquals("6019009876543210", data.cardNumber)
     }
 
     @Test

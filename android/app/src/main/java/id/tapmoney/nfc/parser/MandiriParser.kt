@@ -41,9 +41,28 @@ class MandiriParser : EmoneyParser {
             val respPan = channel.transceive("00B300003F".hexToBytes())
             val panData = respPan.payload()
             if (panData.size >= 8) {
-                cardNumber = panData.copyOfRange(0, 8).toHexString()
+                val candidate = panData.copyOfRange(0, 8).toHexString()
+                if (candidate.length == 16 && candidate.all { it.isDigit() }) {
+                    cardNumber = candidate
+                }
             }
         } catch (_: Exception) {}
+
+        if (cardNumber == uidHex) {
+            try {
+                val respRec = channel.transceive("00B2010400".hexToBytes())
+                if (respRec.isSuccess() && respRec.payload().size >= 8) {
+                    val p = respRec.payload()
+                    val c1 = p.copyOfRange(0, 8).toHexString()
+                    val c2 = if (p.size >= 16) p.copyOfRange(8, 16).toHexString() else ""
+                    if (c1.length == 16 && c1.all { it.isDigit() } && c1.startsWith("60")) {
+                        cardNumber = c1
+                    } else if (c2.length == 16 && c2.all { it.isDigit() } && c2.startsWith("60")) {
+                        cardNumber = c2
+                    }
+                }
+            } catch (_: Exception) {}
+        }
 
         val balance = readBalance(channel, log)
         val history = readHistory(channel, cardNumber, log)

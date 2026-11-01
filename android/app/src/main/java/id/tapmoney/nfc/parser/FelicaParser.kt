@@ -87,7 +87,14 @@ class FelicaParser : EmoneyParser {
                 val idResp = nfcF.transceive(idCmd)
                 if (idResp.size >= 29 && idResp[10] == 0.toByte() && idResp[11] == 0.toByte()) {
                     val rawStr = idResp.sliceArray(13 until 29).decodeToString().trim { it <= ' ' || it == '\u0000' }
-                    if (rawStr.isNotBlank()) cardNumber = rawStr
+                    if (rawStr.isNotBlank() && rawStr.any { it.isDigit() }) {
+                        cardNumber = rawStr
+                    } else {
+                        val hexPan = idResp.sliceArray(13 until 21).toHexString()
+                        if (hexPan.length == 16 && hexPan.all { it.isDigit() }) {
+                            cardNumber = hexPan
+                        }
+                    }
                 }
             } catch (_: Exception) {}
 
