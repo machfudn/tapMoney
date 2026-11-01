@@ -182,38 +182,36 @@ class FlazzParser : EmoneyParser {
             for (sfi in sfis) {
                 val records = mutableListOf<ByteArray>()
 
-                // Primary: Read 60-byte records directly with correct record offset (rec * 60)
-                var directSuccess = false
-                val cmd60 = byteArrayOf(0x00, 0xB0.toByte(), sfi.toByte(), 0x00, 0x3C)
-                for (rec in 0 until 16) {
-                    val offset = rec * 60
-                    if (offset > 240) break
-                    cmd60[3] = offset.toByte()
-                    val resp = channel.transceive(cmd60)
-                    if (resp.isSuccess() && resp.size >= 62) {
-                        directSuccess = true
-                        records.add(resp.sliceArray(0 until 60))
+                // Primary: 15-byte slices extraction (eSaldo Info parity, avoids Le 60-byte rejection)
+                val sfiBuffer = mutableListOf<Byte>()
+                val cmd15 = byteArrayOf(0x00, 0xB0.toByte(), sfi.toByte(), 0x00, 0x0F)
+                for (chunk in 0 until 16) {
+                    cmd15[3] = (chunk * 15).toByte()
+                    val resp = channel.transceive(cmd15)
+                    if (resp.isSuccess() && resp.size >= 17) {
+                        sfiBuffer.addAll(resp.sliceArray(0 until 15).toList())
                     } else {
                         break
                     }
                 }
+                val chunked = sfiBuffer.chunked(60).filter { it.size == 60 }
+                for (c in chunked) {
+                    records.add(c.toByteArray())
+                }
 
-                // Fallback: If 60-byte reading rejected by card, read in 15-byte slices and reassemble
-                if (!directSuccess) {
-                    val sfiBuffer = mutableListOf<Byte>()
-                    val cmd15 = byteArrayOf(0x00, 0xB0.toByte(), sfi.toByte(), 0x00, 0x0F)
-                    for (chunk in 0 until 16) {
-                        cmd15[3] = (chunk * 15).toByte()
-                        val resp = channel.transceive(cmd15)
-                        if (resp.isSuccess() && resp.size >= 17) {
-                            sfiBuffer.addAll(resp.sliceArray(0 until 15).toList())
+                // Fallback: If 15-byte slices yielded nothing, attempt direct 60-byte reading
+                if (records.isEmpty()) {
+                    val cmd60 = byteArrayOf(0x00, 0xB0.toByte(), sfi.toByte(), 0x00, 0x3C)
+                    for (rec in 0 until 16) {
+                        val offset = rec * 60
+                        if (offset > 240) break
+                        cmd60[3] = offset.toByte()
+                        val resp = channel.transceive(cmd60)
+                        if (resp.isSuccess() && resp.size >= 62) {
+                            records.add(resp.sliceArray(0 until 60))
                         } else {
                             break
                         }
-                    }
-                    val chunked = sfiBuffer.chunked(60).filter { it.size == 60 }
-                    for (c in chunked) {
-                        records.add(c.toByteArray())
                     }
                 }
 
@@ -258,61 +256,75 @@ class FlazzParser : EmoneyParser {
             log.append("Flazz file log err: ${e.message}\n")
         }
 
-        // 2. DESFire Gen 2 fallback
-        for (rec in 0..15) {
-            val cmd32 = byteArrayOf(0x90.toByte(), 0x32, 0x03, 0x00, 0x01, rec.toByte(), 0x20)
-            try {
-                var resp = channel.transceive(cmd32)
-                if (resp.size < 34 || !resp.isSuccess()) {
-                    val cmdBd = String.format("90BD000007%02X00000020000000", rec).hexToBytes()
-                    resp = channel.transceive(cmdBd)
-                }
-                if (resp.size < 34 || !resp.isSuccess()) break
+        // 2. DESFire Gen 2 circular log reading (combined with SFI history, up to 256 records)
+        try {
+            channel.transceive(byteArrayOf(0x90.toByte(), 0x32, 0x03, 0x00, 0x00))
 
-                val hex = resp.toHexString()
-                val typeHex = hex.substring(0, 2)
-                val isPayment = typeHex == "04"
-                val secHex = hex.substring(8, 16)
-                val sec = secHex.toLongOrNull(16) ?: 0L
-                val dateObj = if (sec > 0) TxDates.parseFlazzSeconds(sec) else null
+            for (rec in 0 until 256) {
+                val cmd32 = byteArrayOf(0x90.toByte(), 0x32, 0x03, 0x00, 0x01, rec.toByte(), 0x20)
+                try {
+                    var resp = channel.transceive(cmd32)
+                    if (resp.size < 34 || !resp.isSuccess()) {
+                        val cmdBd = String.format("90BD000007%02X00000020000000", rec).hexToBytes()
+                        resp = channel.transceive(cmdBd)
+                    }
+                    if (resp.size < 34 || !resp.isSuccess()) {
+                        if (rec == 0) continue
+                        break
+                    }
 
-                val amtRaw = hex.substring(2, 8).toLongOrNull(16) ?: 0L
-                val amount = if (isPayment && amtRaw > 0) (16777216L - amtRaw) else amtRaw
+                    val hex = resp.toHexString()
+                    val typeHex = hex.substring(0, 2)
+                    val isPayment = typeHex == "04"
+                    val secHex = hex.substring(8, 16)
+                    val sec = secHex.toLongOrNull(16) ?: 0L
+                    val dateObj = if (sec > 0) TxDates.parseFlazzSeconds(sec) else null
 
-                val balHex = if (hex.length >= 50) hex.substring(44, 50) else "0"
-                val balRaw = balHex.toLongOrNull(16) ?: 0L
-                val endBal = if (isPayment) Math.abs(balRaw - amount) else (balRaw + amount)
-                val validBal = if (endBal in 0L..100_000_000L) endBal else null
+                    val amtRaw = hex.substring(2, 8).toLongOrNull(16) ?: 0L
+                    val amount = if (isPayment && amtRaw > 0) (16777216L - amtRaw) else amtRaw
 
-                val tidHex = if (hex.length >= 44) hex.substring(28, 44) else null
-                val tidAscii = tidHex?.chunked(2)?.mapNotNull {
-                    val code = it.toIntOrNull(16) ?: return@mapNotNull null
-                    if (code in 32..126) code.toChar() else null
-                }?.joinToString("")?.trim()
+                    val balHex = if (hex.length >= 50) hex.substring(44, 50) else "0"
+                    val balRaw = balHex.toLongOrNull(16) ?: 0L
+                    val endBal = if (isPayment) Math.abs(balRaw - amount) else (balRaw + amount)
+                    val validBal = if (endBal in 0L..100_000_000L) endBal else null
 
-                if (dateObj != null && amount in 1..100_000_000L) {
-                    history.add(
-                        CardTransactionItem(
-                            type = if (isPayment) "Payment" else "Top up",
-                            amount = amount,
-                            balance = validBal,
-                            date = TxDates.formatDate(dateObj),
-                            time = TxDates.formatTime(dateObj),
-                            terminalId = if (!tidAscii.isNullOrBlank()) tidAscii else tidHex
+                    val tidHex = if (hex.length >= 44) hex.substring(28, 44) else null
+                    val tidAscii = tidHex?.chunked(2)?.mapNotNull {
+                        val code = it.toIntOrNull(16) ?: return@mapNotNull null
+                        if (code in 32..126) code.toChar() else null
+                    }?.joinToString("")?.trim()
+
+                    if (dateObj != null && amount in 1..100_000_000L) {
+                        history.add(
+                            CardTransactionItem(
+                                type = if (isPayment) "Payment" else "Top up",
+                                amount = amount,
+                                balance = validBal,
+                                date = TxDates.formatDate(dateObj),
+                                time = TxDates.formatTime(dateObj),
+                                terminalId = if (!tidAscii.isNullOrBlank()) tidAscii else tidHex
+                            )
                         )
-                    )
+                    }
+                } catch (_: Exception) {
+                    if (rec == 0) continue
+                    break
                 }
-            } catch (_: Exception) {
-                break
             }
+        } catch (e: Exception) {
+            log.append("Flazz DESFire circular log err: ${e.message}\n")
         }
 
-        // 3. Gen 1 history fallback
+        // 3. Gen 1 cyclic record fallback (if SFI and DESFire returned no records)
         if (history.isEmpty()) {
-            for (rec in 1..10) {
+            for (rec in 1..16) {
                 val fallbackRec = String.format("00B2%02X0C00", rec).hexToBytes()
                 try {
-                    val resp = channel.transceive(fallbackRec)
+                    var resp = channel.transceive(fallbackRec)
+                    if (!resp.isSuccess() || resp.size < 34) {
+                        val fallbackRec2 = String.format("00B2%02X2400", rec).hexToBytes()
+                        resp = channel.transceive(fallbackRec2)
+                    }
                     if (!resp.isSuccess()) break
                     val hex = resp.toHexString()
                     if (hex.length >= 32) {
