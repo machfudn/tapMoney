@@ -152,6 +152,55 @@ class CardParserTest {
         assertFalse(data!!.balanceKnown)
     }
 
+    @Test
+    fun `brizzi extracts 16-digit PAN from File 0 response`() {
+        val payload = "010000" + "5221840012345678" + "00".repeat(12) + "9100"
+        val card = FakeCard(
+            "905A0000" to "9100",
+            "90BD0000" to payload,
+            "906C0000" to "50C300009100"
+        )
+        val data = BrizziParser().parseChannel(card, "AABBCCDD", StringBuilder())
+        assertNotNull(data)
+        assertEquals("5221840012345678", data!!.cardNumber)
+        assertEquals(50_000L, data.balance)
+    }
+
+    @Test
+    fun `brizzi parses transaction history with correct BCD date, time, and remaining balance`() {
+        val prefix1 = "00000000112233445566778899AABBCC"
+        val rec1 = prefix1 + "100524" + "081530" + "EC" + "A08601" + "F0490200" + "0000"
+
+        val prefix2 = "000000002233445566778899AABBCCDD"
+        val rec2 = prefix2 + "110524" + "143045" + "EB" + "A86100" + "48E80100" + "0000"
+
+        val card = FakeCard(
+            "905A0000" to "9100",
+            "906C0000" to "0000000091AE",
+            "90BB0000" to (rec1 + rec2 + "9100")
+        )
+        val data = BrizziParser().parseChannel(card, "AABBCCDD", StringBuilder())
+        assertNotNull(data)
+        assertEquals(2, data!!.history.size)
+
+        val first = data.history[0]
+        assertEquals("2024-05-11", first.date)
+        assertEquals("14:30:45", first.time)
+        assertEquals(25_000L, first.amount)
+        assertEquals(125_000L, first.balance)
+        assertEquals("Payment", first.type)
+
+        val second = data.history[1]
+        assertEquals("2024-05-10", second.date)
+        assertEquals("08:15:30", second.time)
+        assertEquals(100_000L, second.amount)
+        assertEquals(150_000L, second.balance)
+        assertEquals("Top up", second.type)
+
+        assertEquals(125_000L, data.balance)
+        assertTrue(data.balanceKnown)
+    }
+
     // --- BNI TAPCASH ---
 
     @Test
