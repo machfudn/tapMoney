@@ -22,6 +22,7 @@ class BrizziParser : EmoneyParser {
 
     private val brizziSelect = byteArrayOf(0x90.toByte(), 0x5A, 0x00, 0x00, 0x03, 0x01, 0x00, 0x00, 0x00)
     private val brizziSelectAlt = byteArrayOf(0x90.toByte(), 0x5A, 0x00, 0x00, 0x03, 0x16, 0x00, 0x00, 0x00)
+    private val brizziSelectHistory = byteArrayOf(0x90.toByte(), 0x5A, 0x00, 0x00, 0x03, 0x02, 0x00, 0x00, 0x00)
 
     override fun canHandle(tag: Tag): Boolean = tag.techList.contains(IsoDep::class.java.name)
 
@@ -42,6 +43,12 @@ class BrizziParser : EmoneyParser {
         log.append("Detected: BRI Brizzi\n")
 
         val cardNumber = extractCardNumber(channel, log) ?: uidHex
+
+        // Execute DESFire 3DES Mutual Authentication if 16-digit PAN is available
+        if (cardNumber.length == 16 && cardNumber.all { it.isDigit() }) {
+            authenticateBrizzi(channel, cardNumber, uidHex, log)
+        }
+
         var balance = extractBalance(channel, log)
         val history = readHistory(channel, log)
 
@@ -69,6 +76,54 @@ class BrizziParser : EmoneyParser {
             balanceKnown = balance != null,
             debugLog = log.toString()
         )
+    }
+
+    private fun authenticateBrizzi(channel: ApduChannel, pan: String, uidHex: String, log: StringBuilder): Boolean {
+        try {
+            // Select App 010000 before initiating challenge
+            channel.transceive(brizziSelect)
+
+            // 1. Request challenge from card (Native Authenticate Key 0: 90 0A 00 00 01 00 00)
+            val authNativeCmd = byteArrayOf(0x90.toByte(), 0x0A, 0x00, 0x00, 0x01, 0x00, 0x00)
+            var respAuth = channel.transceive(authNativeCmd)
+
+            if (!respAuth.hasStatus(0x91, 0xAF)) {
+                // Fallback to ISO Authenticate Key 0: 90 1A 00 00 01 00 00
+                val authIsoCmd = byteArrayOf(0x90.toByte(), 0x1A, 0x00, 0x00, 0x01, 0x00, 0x00)
+                respAuth = channel.transceive(authIsoCmd)
+            }
+
+            if (!respAuth.hasStatus(0x91, 0xAF) || respAuth.payload().size < 8) {
+                log.append("Brizzi auth challenge request unhandled: ${respAuth.toHexString()}\n")
+                return false
+            }
+
+            val rndBEnc = respAuth.payload().sliceArray(0 until 8).toHexString()
+
+            // 2. Compute 3DES session key and encrypted challenge response token
+            val responsePayload = BrizziCrypto.computeAuthResponse(pan, uidHex, rndBEnc)
+            if (responsePayload == null) {
+                log.append("Brizzi 3DES response computation failed\n")
+                return false
+            }
+
+            // 3. Send challenge response: 90 AF 00 00 10 [token 16 bytes] 00
+            val sendRespCmd = byteArrayOf(0x90.toByte(), 0xAF.toByte(), 0x00, 0x00, 0x10) +
+                    responsePayload.hexToBytes() +
+                    byteArrayOf(0x00)
+
+            val finalResp = channel.transceive(sendRespCmd)
+            if (finalResp.isDesfireSuccess() || finalResp.hasStatus(0x91, 0x00) || finalResp.hasStatus(0x90, 0x00)) {
+                log.append("Brizzi 3DES mutual authentication SUCCESS\n")
+                return true
+            } else {
+                log.append("Brizzi 3DES auth response returned: ${finalResp.toHexString()}\n")
+                return false
+            }
+        } catch (e: Exception) {
+            log.append("Brizzi auth error: ${e.message}\n")
+            return false
+        }
     }
 
     private fun extractCardNumber(channel: ApduChannel, log: StringBuilder): String? {
@@ -143,18 +198,10 @@ class BrizziParser : EmoneyParser {
     }
 
     private fun extractBalance(channel: ApduChannel, log: StringBuilder): Long? {
-        // Probe file 0x00 first (canonical in rijalmyd/prepaidcard_reader & muhakmal/osp-kue-reader)
-        val fileCandidates = listOf(0x00, 0x01, 0x02, 0x03)
+        // Probe file 0x01 first (canonical in eSaldo Info), then 0x00
+        val fileCandidates = listOf(0x01, 0x00, 0x02, 0x03)
         for (fileNo in fileCandidates) {
             try {
-                if (fileNo == 0x00) {
-                    // Pre-read File 03 as in rijalmyd (Brizzii APDU: 90 BD 00 00 07 03 00 00 00 07 00 00 00)
-                    try {
-                        val cmdPre = byteArrayOf(0x90.toByte(), 0xBD.toByte(), 0x00, 0x00, 0x07, 0x03, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00)
-                        channel.transceive(cmdPre)
-                    } catch (_: Exception) {}
-                }
-
                 val cmdBal = byteArrayOf(0x90.toByte(), 0x6C, 0x00, 0x00, 0x01, fileNo.toByte(), 0x00)
                 val respBal = channel.transceive(cmdBal)
                 if (respBal.isDesfireSuccess() && respBal.payload().size >= 4) {
@@ -172,7 +219,7 @@ class BrizziParser : EmoneyParser {
             } catch (_: Exception) {}
         }
 
-        for (fileNo in listOf(0x00, 0x01, 0x02)) {
+        for (fileNo in listOf(0x01, 0x00, 0x02)) {
             try {
                 val cmdRead = byteArrayOf(0x90.toByte(), 0xBD.toByte(), 0x00, 0x00, 0x07, fileNo.toByte(), 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00)
                 val respRead = channel.transceive(cmdRead)
@@ -192,12 +239,13 @@ class BrizziParser : EmoneyParser {
     private fun readHistory(channel: ApduChannel, log: StringBuilder): List<CardTransactionItem> {
         val history = mutableListOf<CardTransactionItem>()
 
-        // 1. Direct read under current app 010000 (canonical in muhakmal & rijalmyd)
-        // 2. Fallbacks: 010000, 020000, 160000, 030000
+        // 1. App 020000 (canonical history AID in eSaldo Info)
+        // 2. App 010000 (active application)
+        // 3. Fallbacks: 160000, 030000
         val targetApps: List<ByteArray?> = listOf(
+            brizziSelectHistory,
             null, // Stay in active App 010000
-            byteArrayOf(0x90.toByte(), 0x5A, 0x00, 0x00, 0x03, 0x01, 0x00, 0x00, 0x00),
-            byteArrayOf(0x90.toByte(), 0x5A, 0x00, 0x00, 0x03, 0x02, 0x00, 0x00, 0x00),
+            brizziSelect,
             byteArrayOf(0x90.toByte(), 0x5A, 0x00, 0x00, 0x03, 0x16, 0x00, 0x00, 0x00),
             byteArrayOf(0x90.toByte(), 0x5A, 0x00, 0x00, 0x03, 0x03, 0x00, 0x00, 0x00)
         )
@@ -278,15 +326,16 @@ class BrizziParser : EmoneyParser {
             val i = idx * recordLen
             val record = rawLog.substring(i, i + recordLen)
 
-            // As in muhakmal/osp-kue-reader:
-            // timeHex = record.substring(32, 38)
-            // dateHex = record.substring(38, 44)
+            // eSaldo Info canonical mapping:
+            // 32..38: Date ddMMyy
+            // 38..42: Time HHmm (or 38..44 HHmmss)
             val sub3238 = record.substring(32, 38)
             val sub3844 = record.substring(38, 44)
 
-            // Try canonical order (time at 32..38, date at 38..44), fallback to swapped
-            val dateObj = parseDateCandidate(dateStr = sub3844, timeStr = sub3238)
-                ?: parseDateCandidate(dateStr = sub3238, timeStr = sub3844)
+            // Primary: sub3238 is date (ddMMyy), sub3844 is time (HHmmss)
+            // Fallback: sub3844 is date, sub3238 is time
+            val dateObj = parseDateCandidate(dateStr = sub3238, timeStr = sub3844)
+                ?: parseDateCandidate(dateStr = sub3844, timeStr = sub3238)
                 ?: continue
 
             val typeHex = record.substring(44, 46)
@@ -297,7 +346,6 @@ class BrizziParser : EmoneyParser {
 
             val amount = reverseHex(amountHex).toLongOrNull(16) ?: 0L
             val isTopUp = typeHex.equals("EC", ignoreCase = true) ||
-                    typeHex.equals("ED", ignoreCase = true) ||
                     typeHex.equals("02", ignoreCase = true)
 
             val b4 = if (balHex4.length == 8) reverseHex(balHex4).toLongOrNull(16) else null
@@ -325,16 +373,18 @@ class BrizziParser : EmoneyParser {
     }
 
     private fun parseDateCandidate(dateStr: String, timeStr: String): java.util.Date? {
-        if (dateStr == "000000" || timeStr == "000000") return null
+        if (dateStr == "000000" || timeStr.startsWith("000000")) return null
+
+        val tStr = if (timeStr.length >= 6) timeStr.substring(0, 6) else timeStr.padEnd(6, '0')
 
         // 1. Try BCD decimal ddMMyy & HHmmss
         try {
             val d = dateStr.substring(0, 2).toInt()
             val m = dateStr.substring(2, 4).toInt() - 1
             val y = dateStr.substring(4, 6).toInt() + 2000
-            val h = timeStr.substring(0, 2).toInt()
-            val min = timeStr.substring(2, 4).toInt()
-            val s = timeStr.substring(4, 6).toInt()
+            val h = tStr.substring(0, 2).toInt()
+            val min = tStr.substring(2, 4).toInt()
+            val s = tStr.substring(4, 6).toInt()
             if (m in 0..11 && d in 1..31 && h in 0..23 && min in 0..59 && s in 0..59) {
                 val cal = java.util.Calendar.getInstance(TxDates.JAKARTA)
                 cal.set(y, m, d, h, min, s)
@@ -343,14 +393,14 @@ class BrizziParser : EmoneyParser {
             }
         } catch (_: Exception) {}
 
-        // 2. Try Hex base 16 (muhakmal/osp-kue-reader)
+        // 2. Try Hex base 16
         try {
             val d = Integer.parseInt(dateStr.substring(0, 2), 16)
             val m = Integer.parseInt(dateStr.substring(2, 4), 16) - 1
             val y = Integer.parseInt(dateStr.substring(4, 6), 16) + 2000
-            val h = Integer.parseInt(timeStr.substring(0, 2), 16)
-            val min = Integer.parseInt(timeStr.substring(2, 4), 16)
-            val s = Integer.parseInt(timeStr.substring(4, 6), 16)
+            val h = Integer.parseInt(tStr.substring(0, 2), 16)
+            val min = Integer.parseInt(tStr.substring(2, 4), 16)
+            val s = Integer.parseInt(tStr.substring(4, 6), 16)
             if (m in 0..11 && d in 1..31 && h in 0..23 && min in 0..59 && s in 0..59) {
                 val cal = java.util.Calendar.getInstance(TxDates.JAKARTA)
                 cal.set(y, m, d, h, min, s)
@@ -364,9 +414,9 @@ class BrizziParser : EmoneyParser {
             val y = dateStr.substring(0, 2).toInt() + 2000
             val m = dateStr.substring(2, 4).toInt() - 1
             val d = dateStr.substring(4, 6).toInt()
-            val h = timeStr.substring(0, 2).toInt()
-            val min = timeStr.substring(2, 4).toInt()
-            val s = timeStr.substring(4, 6).toInt()
+            val h = tStr.substring(0, 2).toInt()
+            val min = tStr.substring(2, 4).toInt()
+            val s = tStr.substring(4, 6).toInt()
             if (m in 0..11 && d in 1..31 && h in 0..23 && min in 0..59 && s in 0..59) {
                 val cal = java.util.Calendar.getInstance(TxDates.JAKARTA)
                 cal.set(y, m, d, h, min, s)
