@@ -6,6 +6,13 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,6 +47,8 @@ import id.tapmoney.model.CardTransactionItem
 import id.tapmoney.model.StoredCard
 import id.tapmoney.model.UserSettings
 import id.tapmoney.util.ReceiptFormatter
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -77,6 +86,19 @@ fun MainScreen(
     var showSettingsScreen by remember { mutableStateOf(false) }
     var editingTerminalId by remember { mutableStateOf<String?>(null) }
     var editingTerminalName by remember { mutableStateOf("") }
+    var loadingTerminalIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var isInitialLocLoading by remember(currentCard?.cardId, currentCard?.cardNumber) {
+        mutableStateOf(currentCard != null && currentCard.history.isNotEmpty())
+    }
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(currentCard?.cardId, currentCard?.cardNumber) {
+        if (currentCard != null && currentCard.history.isNotEmpty()) {
+            isInitialLocLoading = true
+            delay(400)
+            isInitialLocLoading = false
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -249,6 +271,9 @@ fun MainScreen(
                             HistoryGroupWidget(
                                 group = group,
                                 locationAliases = locationAliases,
+                                loadingTerminalIds = loadingTerminalIds,
+                                isInitialLocLoading = isInitialLocLoading,
+                                isDark = isDark,
                                 surfaceColor = surfaceColor,
                                 borderColor = borderColor,
                                 textColor = textColor,
@@ -409,9 +434,15 @@ fun MainScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        onSaveLocationAlias(tid, tempName.trim())
+                        val trimmed = tempName.trim()
                         editingTerminalId = null
-                        Toast.makeText(context, strings.locationSavedToast, Toast.LENGTH_SHORT).show()
+                        coroutineScope.launch {
+                            loadingTerminalIds = loadingTerminalIds + tid
+                            onSaveLocationAlias(tid, trimmed)
+                            delay(600)
+                            loadingTerminalIds = loadingTerminalIds - tid
+                            Toast.makeText(context, strings.locationSavedToast, Toast.LENGTH_SHORT).show()
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = NeoColors.Yellow),
                     shape = RoundedCornerShape(6.dp),
@@ -813,9 +844,41 @@ fun groupHistoryByDate(items: List<CardTransactionItem>, isEnglish: Boolean = fa
 }
 
 @Composable
+fun LocationLoadingPulse(
+    modifier: Modifier = Modifier,
+    isDark: Boolean = false,
+    borderColor: Color = if (isDark) Color(0xFF3F3F46) else Color(0xFF111827)
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "LocationPulse")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.18f,
+        targetValue = 0.65f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 650, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "PulseAlpha"
+    )
+
+    val pulseColor = if (isDark) Color.White else Color.Black
+
+    Box(
+        modifier = modifier
+            .width(110.dp)
+            .height(15.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(pulseColor.copy(alpha = alpha))
+            .border(1.dp, borderColor.copy(alpha = 0.35f), RoundedCornerShape(3.dp))
+    )
+}
+
+@Composable
 fun HistoryGroupWidget(
     group: TransactionGroup,
     locationAliases: Map<String, String>,
+    loadingTerminalIds: Set<String>,
+    isInitialLocLoading: Boolean,
+    isDark: Boolean,
     surfaceColor: Color,
     borderColor: Color,
     textColor: Color,
@@ -912,13 +975,29 @@ fun HistoryGroupWidget(
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
                             )
-                            val locName = id.tapmoney.data.TerminalCatalog.resolveLocation(tx.terminalId, locationAliases, strings.locationUnknown)
-                            Text(
-                                text = locName,
-                                color = textColor,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            val isLocLoading = isInitialLocLoading || (!tx.terminalId.isNullOrEmpty() && loadingTerminalIds.contains(tx.terminalId))
+                            Crossfade(
+                                targetState = isLocLoading,
+                                animationSpec = tween(durationMillis = 220),
+                                label = "LocationCrossfade"
+                            ) { loading ->
+                                if (loading) {
+                                    LocationLoadingPulse(
+                                        modifier = Modifier.padding(vertical = 1.dp),
+                                        isDark = isDark,
+                                        borderColor = borderColor
+                                    )
+                                } else {
+                                    val locName = id.tapmoney.data.TerminalCatalog.resolveLocation(tx.terminalId, locationAliases, strings.locationUnknown)
+                                    Text(
+                                        text = locName,
+                                        color = textColor,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
 
                         if (!tx.terminalId.isNullOrEmpty()) {
