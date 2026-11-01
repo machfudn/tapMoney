@@ -5,7 +5,7 @@
 # Tap Money
 
 [![Android CI Release](https://github.com/machfudn/tapMoney/actions/workflows/build-release-apk.yml/badge.svg)](https://github.com/machfudn/tapMoney/actions/workflows/build-release-apk.yml)
-[![Version](https://img.shields.io/badge/version-v1.1.9-blue.svg)](#)
+[![Version](https://img.shields.io/badge/version-v1.1.10-blue.svg)](#)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-purple.svg?logo=kotlin)](#)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2024.10.01-4285F4.svg?logo=android)](#)
 [![Target SDK](https://img.shields.io/badge/targetSdk-35%20(Android%2015)-green.svg)](#)
@@ -153,8 +153,8 @@ tapMoney/
 │   │   └── build.gradle                         # App Gradle build configuration (Compose, Java 21)
 │   ├── build.gradle                             # Root project buildscript (Kotlin 2.0.21, AGP 8.13.0)
 │   ├── settings.gradle                          # Gradle settings
-│   ├── version.properties                       # Dynamic release version config (v1.1.9 / 10109)
-│   ├── RELEASE_NOTES.md                         # Release notes for v1.1.9
+│   ├── version.properties                       # Dynamic release version config (v1.1.10 / 10110)
+│   ├── RELEASE_NOTES.md                         # Release notes for v1.1.10
 │   └── gradle.properties                        # JVM options and Kotlin compiler flags
 ├── README.md                                    # Indonesian Documentation
 └── README.en.md                                 # English Documentation
@@ -239,12 +239,12 @@ Compile the release variant:
 
 Sign the output package using `apksigner`:
 ```bash
-apksigner sign --ks release.keystore --ks-pass pass:YOUR_PASSWORD --out TapMoney-v1.1.9.apk android/app/build/outputs/apk/release/app-release-unsigned.apk
+apksigner sign --ks release.keystore --ks-pass pass:YOUR_PASSWORD --out TapMoney-v1.1.10.apk android/app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
 Verify signature integrity:
 ```bash
-apksigner verify --verbose TapMoney-v1.1.9.apk
+apksigner verify --verbose TapMoney-v1.1.10.apk
 ```
 
 ---

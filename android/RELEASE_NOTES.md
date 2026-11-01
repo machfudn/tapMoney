@@ -1,14 +1,16 @@
-* **Perbaikan Riwayat Transaksi & Saldo Akhir BCA Flazz (Gen 1 & Gen 2)**:
-  * **Offset Baca Record SFI**: Memperbaiki pembacaan cyclic log record SFI 04 (`0x84`) dan SFI 05 (`0x85`) dengan kalkulasi stepping offset tepat 60-byte (`rec * 60`), serta mekanisme fallback perakitan potongan 15-byte jika pembacaan langsung 60-byte ditolak chip.
-  * **Ekstraksi Saldo Akhir**: Parsing saldo akhir mutasi (`balRaw`) pada byte 1..4 record secara presisi untuk tipe Payment maupun Top Up.
-  * **Kontinuitas Buku Besar (Ledger Consistency)**: Rekonsiliasi otomatis saldo akhir transaksi secara mundur/maju dari saldo aktif kartu jika chip versi lama tidak memuat saldo langsung pada log transaksi.
-* **Standarisasi Saldo Akhir pada Dokumen Struk & Ekspor**:
-  * **Ekspor PDF A4**: Mengubah label kolom `SISA SALDO` menjadi `SALDO AKHIR` (`ENDING BAL`) serta memastikan seluruh baris terisi nilai saldo akhir riil.
-  * **Cetak Struk Thermal Bluetooth (ESC/POS)**: Mengubah label `Sisa Saldo` menjadi `Saldo Akhir` (`Ending Bal`) pada format monospaced 32 kolom.
-  * **Salin & Bagikan Struk**: Memperbarui teks struk ringkasan clipboard dan share intent menggunakan label `Saldo Akhir`.
-  * **Tampilan Riwayat Chip**: Memastikan informasi `Saldo Akhir: Rp ...` tampil konsisten pada setiap item mutasi kartu.
-* **Penyelarasan Identitas Proyek & Branding**:
-  * Menstandarkan penamaan aplikasi menjadi **Tap Money** (`tapMoney`), menghapus akhiran redundant "Info" pada judul struk, header PDF, dan release workflow.
-  * Pembaruan endpoint repositori resmi ke `https://github.com/machfudn/tapMoney`.
-* **Optimasi Performa & Perampingan Repositori**:
-  * Pembersihan seluruh test suite dan dependensi unit test/instrumentation test yang tidak diperlukan untuk menjaga ukuran repositori tetap ringan dan build lebih cepat.
+* **Pembaruan Parser BRI BRIZZI (DESFire EV1/EV2)**:
+  * **Pembacaan Saldo Handal**: Memprioritaskan File `0x00` pada perintah Get Value `90 6C 00 00 01 00 00` serta pre-read File `0x03` (`90 BD 00 00 07 03 ...`) sesuai implementasi referensi `rijalmyd/prepaidcard_reader` dan `muhakmal/osp-kue-reader`.
+  * **Pembacaan Riwayat Mutasi**: Pembacaan log mutasi (`90 BB` File 01) langsung dieksekusi di bawah aplikasi aktif `010000` dengan multi-frame chaining `90 AF` tanpa pengalihan paksa aplikasi.
+  * **Koreksi Offset & Penanggalan Record 32-Byte**: Memperbaiki pemetaan byte waktu (`timeHex` byte 16..18 / index 32..38) dan tanggal (`dateHex` byte 19..21 / index 38..44), serta menambahkan dukungan decoding ganda format BCD desimal dan Hex byte (basis 16).
+* **Deteksi Status Sensor NFC Real-Time**:
+  * Pendaftaran `BroadcastReceiver` dinamis pada `MainActivity` untuk mendengarkan perubahan status adapter sistem (`NfcAdapter.ACTION_ADAPTER_STATE_CHANGED`).
+  * Perubahan status NFC on/off melalui Quick Settings atau setelan sistem langsung terdeteksi seketika tanpa perlu membuka ulang aplikasi.
+* **Tampilan Riwayat Mutasi Ringkas (Toggle 3 Transaksi)**:
+  * Menampilkan 3 riwayat transaksi teratas secara default untuk menjaga antarmuka tetap rapi.
+  * Tombol aksi bergaya neobrutalisme interaktif untuk beralih antara "Lihat Semua" dan "Lihat Lebih Sedikit".
+* **Penanganan Lokasi Tidak Terdaftar**:
+  * Pengetatan resolusi nama lokasi (`TerminalCatalog` & `KmtStationCatalog`): kode perangkat mentah/undecoded otomatis dimasking menjadi label standar "Tidak dikenali" (ID) / "Unknown" (EN).
+* **Penyempurnaan Visual & Kontras Tombol**:
+  * Warna teks, ikon putar, dan indikator loading pada tombol "Periksa Pembaruan" di tab Pengaturan diselaraskan menjadi putih (`#FFFFFF`) untuk keterbacaan optimal.
+* **Sinkronisasi Dwibahasa Penuh (ID & EN)**:
+  * Memastikan seluruh 131 key kamus bahasa pada `id.json` dan `en.json` tersinkronisasi 100% untuk semua komponen antarmuka, dialog, dan ekspor struk.
