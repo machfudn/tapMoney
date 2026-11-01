@@ -17,13 +17,17 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.lifecycleScope
 import id.tapmoney.data.CardDatabase
 import id.tapmoney.model.CardBalanceResult
 import id.tapmoney.model.StoredCard
 import id.tapmoney.model.UserSettings
 import id.tapmoney.nfc.NfcEngine
+import id.tapmoney.ui.LocalAppStrings
 import id.tapmoney.ui.MainScreen
+import id.tapmoney.ui.getAppStrings
+import id.tapmoney.ui.resolveIsEnglish
 import id.tapmoney.util.BluetoothPrinter
 import id.tapmoney.util.ReceiptExporter
 import kotlinx.coroutines.Dispatchers
@@ -63,72 +67,77 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         loadData()
 
         setContent {
-            MainScreen(
-                currentCard = currentCardState.value,
-                savedCards = savedCardsState.value,
-                locationAliases = locationAliasesState.value,
-                settings = settingsState.value,
-                nfcEnabled = nfcEnabledState.value,
-                statusMessage = statusMessageState.value,
-                onSettingsChanged = { updateSettings(it) },
-                onClearCurrentCard = { currentCardState.value = null },
-                onDeleteSavedCard = { cardNumber ->
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        db.deleteCard(cardNumber)
-                        withContext(Dispatchers.Main) {
-                            if (currentCardState.value?.cardNumber == cardNumber) currentCardState.value = null
-                            loadData()
+            val appStrings = getAppStrings(settingsState.value.appLanguage)
+            CompositionLocalProvider(LocalAppStrings provides appStrings) {
+                MainScreen(
+                    currentCard = currentCardState.value,
+                    savedCards = savedCardsState.value,
+                    locationAliases = locationAliasesState.value,
+                    settings = settingsState.value,
+                    nfcEnabled = nfcEnabledState.value,
+                    statusMessage = statusMessageState.value,
+                    onSettingsChanged = { updateSettings(it) },
+                    onClearCurrentCard = { currentCardState.value = null },
+                    onDeleteSavedCard = { cardNumber ->
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            db.deleteCard(cardNumber)
+                            withContext(Dispatchers.Main) {
+                                if (currentCardState.value?.cardNumber == cardNumber) currentCardState.value = null
+                                loadData()
+                            }
+                        }
+                    },
+                    onClearAllData = {
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            db.clearAllSavedCards()
+                            withContext(Dispatchers.Main) {
+                                currentCardState.value = null
+                                loadData()
+                            }
+                        }
+                    },
+                    onSaveLocationAlias = { tid, name ->
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            db.setLocationAlias(tid, name)
+                            val aliases = db.getLocationAliases()
+                            withContext(Dispatchers.Main) { locationAliasesState.value = aliases }
+                        }
+                    },
+                    onSelectSavedCard = { saved ->
+                        currentCardState.value = CardBalanceResult(
+                            cardType = saved.cardType,
+                            issuer = saved.issuer,
+                            cardNumber = saved.cardNumber,
+                            cardId = null,
+                            balance = saved.balance,
+                            history = saved.history,
+                            timestamp = saved.timestamp
+                        )
+                    },
+                    onExportPdf = { card ->
+                        val isEn = resolveIsEnglish(settingsState.value.appLanguage)
+                        val uri = ReceiptExporter.createPdf(this, card, isEn)
+                        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                            type = "application/pdf"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }, appStrings.receiptShareTitle))
+                    },
+                    onPrintReceipt = { card ->
+                        val isEn = resolveIsEnglish(settingsState.value.appLanguage)
+                        val adapter = BluetoothAdapter.getDefaultAdapter()
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            val result = BluetoothPrinter.printPaired(adapter, card, isEn)
+                            withContext(Dispatchers.Main) {
+                                statusMessageState.value = result.fold(
+                                    { if (isEn) "Receipt sent to $it" else "Struk terkirim ke $it" },
+                                    { if (isEn) "Print failed: ${it.message ?: "printer unavailable"}" else "Cetak gagal: ${it.message ?: "printer tidak tersedia"}" }
+                                )
+                            }
                         }
                     }
-                },
-                onClearAllData = {
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        db.clearAllSavedCards()
-                        withContext(Dispatchers.Main) {
-                            currentCardState.value = null
-                            loadData()
-                        }
-                    }
-                },
-                onSaveLocationAlias = { tid, name ->
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        db.setLocationAlias(tid, name)
-                        val aliases = db.getLocationAliases()
-                        withContext(Dispatchers.Main) { locationAliasesState.value = aliases }
-                    }
-                },
-                onSelectSavedCard = { saved ->
-                    currentCardState.value = CardBalanceResult(
-                        cardType = saved.cardType,
-                        issuer = saved.issuer,
-                        cardNumber = saved.cardNumber,
-                        cardId = null,
-                        balance = saved.balance,
-                        history = saved.history,
-                        timestamp = saved.timestamp
-                    )
-                },
-                onExportPdf = { card ->
-                    val uri = ReceiptExporter.createPdf(this, card)
-                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                        type = "application/pdf"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }, "Bagikan PDF"))
-                },
-                onPrintReceipt = { card ->
-                    val adapter = BluetoothAdapter.getDefaultAdapter()
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        val result = BluetoothPrinter.printPaired(adapter, card)
-                        withContext(Dispatchers.Main) {
-                            statusMessageState.value = result.fold(
-                                { "Struk terkirim ke $it" },
-                                { "Cetak gagal: ${it.message ?: "printer tidak tersedia"}" }
-                            )
-                        }
-                    }
-                }
-            )
+                )
+            }
         }
     }
 
@@ -195,18 +204,20 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
         lifecycleScope.launch(Dispatchers.IO) {
             val result = NfcEngine.readCard(tag, settingsState.value)
+            val isEn = resolveIsEnglish(settingsState.value.appLanguage)
             withContext(Dispatchers.Main) {
                 if (result != null) {
                     triggerHapticAndSound()
                     if (settingsState.value.speakAmount) {
-                        textToSpeech?.speak("Saldo ${result.balance} rupiah", TextToSpeech.QUEUE_FLUSH, null, "balance")
+                        val speechText = if (isEn) "Balance ${result.balance}" else "Saldo ${result.balance} rupiah"
+                        textToSpeech?.speak(speechText, TextToSpeech.QUEUE_FLUSH, null, "balance")
                     }
                     if (settingsState.value.autoSaveHistory) db.saveCard(result)
                     currentCardState.value = result
-                    statusMessageState.value = "Berhasil membaca: ${result.cardType}"
+                    statusMessageState.value = if (isEn) "Successfully read: ${result.cardType}" else "Berhasil membaca: ${result.cardType}"
                     loadData()
                 } else {
-                    statusMessageState.value = "Gagal membaca kartu atau kartu terlepas terlalu cepat"
+                    statusMessageState.value = if (isEn) "Failed to read card or card removed too quickly" else "Gagal membaca kartu atau kartu terlepas terlalu cepat"
                 }
             }
         }
@@ -264,6 +275,17 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             "light" -> false
             else -> null
         }
+        val langVal = sp.getString("app_language", "system")
+        val appLanguage = when (langVal) {
+            "id" -> "id"
+            "en" -> "en"
+            else -> null
+        }
+        val isEn = resolveIsEnglish(appLanguage)
+        try {
+            textToSpeech?.language = if (isEn) java.util.Locale.US else java.util.Locale("id", "ID")
+        } catch (_: Exception) {}
+
         settingsState.value = UserSettings(
             enableSound = sound,
             enableHaptics = haptics,
@@ -275,12 +297,18 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             scanDomesticBanking = scanDomesticBanking,
             scanDomesticTransit = scanDomesticTransit,
             scanRegionalTransit = scanRegionalTransit,
-            darkTheme = dark
+            darkTheme = dark,
+            appLanguage = appLanguage
         )
     }
 
     private fun updateSettings(newSettings: UserSettings) {
         settingsState.value = newSettings
+        val isEn = resolveIsEnglish(newSettings.appLanguage)
+        try {
+            textToSpeech?.language = if (isEn) java.util.Locale.US else java.util.Locale("id", "ID")
+        } catch (_: Exception) {}
+
         val sp = getSharedPreferences("tap_money_prefs", Context.MODE_PRIVATE)
         sp.edit().apply {
             putBoolean("enable_sound", newSettings.enableSound)
@@ -299,6 +327,12 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                 else -> "system"
             }
             putString("theme", themeStr)
+            val langStr = when (newSettings.appLanguage) {
+                "id" -> "id"
+                "en" -> "en"
+                else -> "system"
+            }
+            putString("app_language", langStr)
             apply()
         }
     }

@@ -39,6 +39,7 @@ import id.tapmoney.model.CardIssuer
 import id.tapmoney.model.CardTransactionItem
 import id.tapmoney.model.StoredCard
 import id.tapmoney.model.UserSettings
+import id.tapmoney.util.ReceiptFormatter
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -60,6 +61,7 @@ fun MainScreen(
     onPrintReceipt: (CardBalanceResult) -> Unit
 ) {
     val context = LocalContext.current
+    val strings = LocalAppStrings.current
     val systemDark = isSystemInDarkTheme()
     val isDark = settings.darkTheme ?: systemDark
 
@@ -71,22 +73,35 @@ fun MainScreen(
     val borderColor = if (isDark) Color(0xFF3F3F46) else NeoColors.Border
 
     var activeTab by remember { mutableStateOf("chip") }
-    var showSettingsDialog by remember { mutableStateOf(false) }
-    var showSupportedCards by remember { mutableStateOf(false) }
+    var showSettingsScreen by remember { mutableStateOf(false) }
     var editingTerminalId by remember { mutableStateOf<String?>(null) }
     var editingTerminalName by remember { mutableStateOf("") }
+    var showAllHistory by remember(currentCard?.cardNumber) { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(bgColor)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp)
-        ) {
+        if (showSettingsScreen) {
+            SettingsScreen(
+                settings = settings,
+                onSettingsChanged = onSettingsChanged,
+                onClearAllData = onClearAllData,
+                onBack = { showSettingsScreen = false },
+                surfaceColor = surfaceColor,
+                surfaceAltColor = surfaceAltColor,
+                borderColor = borderColor,
+                textColor = textColor,
+                textSubtleColor = textSubtleColor
+            )
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp)
+            ) {
             // Header Bar
             Row(
                 modifier = Modifier
@@ -112,16 +127,16 @@ fun MainScreen(
                                 .size(36.dp)
                                 .neoCard(bgColor = surfaceColor, borderColor = borderColor, shadowOffset = 2.dp, cornerRadius = 6.dp)
                         ) {
-                            Icon(Icons.Default.Close, contentDescription = "Tutup Kartu", tint = NeoColors.Red, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Close, contentDescription = strings.closeCard, tint = NeoColors.Red, modifier = Modifier.size(18.dp))
                         }
                     }
                     IconButton(
-                        onClick = { showSettingsDialog = true },
+                        onClick = { showSettingsScreen = true },
                         modifier = Modifier
                             .size(36.dp)
                             .neoCard(bgColor = surfaceColor, borderColor = borderColor, shadowOffset = 2.dp, cornerRadius = 6.dp)
                     ) {
-                        Icon(Icons.Default.Settings, contentDescription = "Pengaturan", tint = textColor, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Settings, contentDescription = strings.settings, tint = textColor, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -131,7 +146,7 @@ fun MainScreen(
                     .weight(1f)
                     .fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(bottom = 80.dp)
+                contentPadding = PaddingValues(bottom = 100.dp)
             ) {
                 // Card Visual Component
                 item {
@@ -141,7 +156,10 @@ fun MainScreen(
                         surfaceColor = surfaceColor,
                         borderColor = borderColor,
                         textColor = textColor,
-                        textSubtleColor = textSubtleColor
+                        textSubtleColor = textSubtleColor,
+                        onToggleMaskCardNumber = {
+                            onSettingsChanged(settings.copy(maskCardNumber = !settings.maskCardNumber))
+                        }
                     )
                 }
 
@@ -158,10 +176,12 @@ fun MainScreen(
                             onSettingsChanged(settings.copy(hideBalance = !settings.hideBalance))
                         },
                         onShareReceipt = {
-                            shareReceipt(context, currentCard)
+                            val isEn = resolveIsEnglish(settings.appLanguage)
+                            shareReceipt(context, currentCard, isEn)
                         },
                         onCopyReceipt = {
-                            copyReceipt(context, currentCard)
+                            val isEn = resolveIsEnglish(settings.appLanguage)
+                            copyReceipt(context, currentCard, isEn)
                         },
                         onExportPdf = { card -> onExportPdf(card) },
                         onPrintReceipt = { card -> onPrintReceipt(card) }
@@ -183,7 +203,7 @@ fun MainScreen(
                         ) {
                             val chipCount = currentCard?.history?.size ?: 0
                             TabPill(
-                                label = "RIWAYAT CHIP",
+                                label = strings.tabChipHistory,
                                 badgeCount = if (chipCount > 0) chipCount else null,
                                 active = activeTab == "chip",
                                 borderColor = borderColor,
@@ -192,7 +212,7 @@ fun MainScreen(
                             )
 
                             TabPill(
-                                label = "KARTU TERSIMPAN",
+                                label = strings.tabSavedCards,
                                 badgeCount = if (savedCards.isNotEmpty()) savedCards.size else null,
                                 active = activeTab == "saved",
                                 borderColor = borderColor,
@@ -203,7 +223,7 @@ fun MainScreen(
 
                         if (activeTab == "saved" && savedCards.isNotEmpty()) {
                             Text(
-                                text = "Bersihkan",
+                                text = strings.clear,
                                 color = NeoColors.Red,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
@@ -219,7 +239,8 @@ fun MainScreen(
                 if (activeTab == "chip") {
                     val history = currentCard?.history ?: emptyList()
                     if (history.isNotEmpty()) {
-                        val grouped = groupHistoryByDate(history)
+                        val displayHistory = if (showAllHistory) history else history.take(3)
+                        val grouped = groupHistoryByDate(displayHistory)
                         items(grouped) { group ->
                             HistoryGroupWidget(
                                 group = group,
@@ -235,14 +256,46 @@ fun MainScreen(
                                 }
                             )
                         }
+
+                        if (history.size > 3) {
+                            item {
+                                Button(
+                                    onClick = { showAllHistory = !showAllHistory },
+                                    colors = ButtonDefaults.buttonColors(containerColor = surfaceColor),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .neoCard(bgColor = surfaceColor, borderColor = borderColor, shadowOffset = 2.dp, cornerRadius = 8.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(vertical = 10.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = if (showAllHistory) strings.showLess else strings.viewAll,
+                                            color = textColor,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                        Icon(
+                                            imageVector = if (showAllHistory) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                            contentDescription = null,
+                                            tint = textColor,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         item {
                             EmptyTray(
-                                title = "Tidak ada transaksi chip",
+                                title = strings.noChipTransactionsTitle,
                                 subtitle = if (currentCard != null) {
-                                    "Kartu ini tidak memiliki catatan riwayat transaksi di dalam chip."
+                                    strings.noChipTransactionsCardSubtitle
                                 } else {
-                                    "Tempelkan kartu fisik uang elektronik untuk membaca log transaksi on-chip."
+                                    strings.noChipTransactionsIdleSubtitle
                                 },
                                 surfaceColor = surfaceColor,
                                 borderColor = borderColor,
@@ -270,8 +323,8 @@ fun MainScreen(
                     } else {
                         item {
                             EmptyTray(
-                                title = "Belum ada kartu tersimpan",
-                                subtitle = "Setiap kartu yang dipindai akan otomatis dicatat di sini untuk referensi cepat.",
+                                title = strings.noSavedCardsTitle,
+                                subtitle = strings.noSavedCardsSubtitle,
                                 surfaceColor = surfaceColor,
                                 borderColor = borderColor,
                                 textColor = textColor,
@@ -301,7 +354,7 @@ fun MainScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "NFC Mati • Nyalakan sensor",
+                        text = strings.nfcDisabled,
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
@@ -314,7 +367,7 @@ fun MainScreen(
                         shape = RoundedCornerShape(4.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                     ) {
-                        Text(text = "Aktifkan", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        Text(text = strings.enable, color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Black)
                     }
                 }
             } else {
@@ -344,6 +397,7 @@ fun MainScreen(
             }
         }
     }
+}
 
     // Edit Location Alias Dialog
     if (editingTerminalId != null) {
@@ -352,15 +406,15 @@ fun MainScreen(
         AlertDialog(
             onDismissRequest = { editingTerminalId = null },
             title = {
-                Text(text = "Ubah Nama Lokasi", fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(text = strings.editLocationTitle, fontWeight = FontWeight.Black, fontSize = 16.sp)
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(text = "Terminal ID: $tid", fontSize = 12.sp, color = textSubtleColor)
+                    Text(text = "${strings.terminalIdLabel}$tid", fontSize = 12.sp, color = textSubtleColor)
                     OutlinedTextField(
                         value = tempName,
                         onValueChange = { tempName = it },
-                        label = { Text("Nama Lokasi / Merchant") },
+                        label = { Text(strings.locationInputLabel) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -371,220 +425,17 @@ fun MainScreen(
                     onClick = {
                         onSaveLocationAlias(tid, tempName.trim())
                         editingTerminalId = null
-                        Toast.makeText(context, "Nama lokasi disimpan", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, strings.locationSavedToast, Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = NeoColors.Yellow),
                     border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor)
                 ) {
-                    Text("Simpan", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text(strings.save, color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { editingTerminalId = null }) {
-                    Text("Batal", color = textSubtleColor)
-                }
-            }
-        )
-    }
-
-    if (showSupportedCards) {
-        AlertDialog(
-            onDismissRequest = { showSupportedCards = false },
-            title = { Text("Kartu yang Didukung", fontWeight = FontWeight.Black) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Perbankan Indonesia", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = textSubtleColor)
-                    SupportedCardRow("e-Money Mandiri", "Saldo + riwayat")
-                    SupportedCardRow("Flazz BCA", "Saldo + riwayat (Gen 2)")
-                    SupportedCardRow("Brizzi BRI", "Saldo + riwayat")
-                    SupportedCardRow("TapCash BNI", "Saldo + riwayat")
-                    SupportedCardRow("JakCard Bank DKI", "Saldo")
-                    SupportedCardRow("MegaCash Bank Mega", "Saldo")
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Transit Domestik", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = textSubtleColor)
-                    SupportedCardRow("KMT Commuter Line", "Saldo + riwayat + nama stasiun")
-                    SupportedCardRow("MRT Jakarta (MRTJ)", "Saldo + transaksi terakhir")
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Transit Regional / Global", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = textSubtleColor)
-                    SupportedCardRow("CEPAS (EZ-Link / NETS)", "Saldo SGD + riwayat")
-                    SupportedCardRow("Suica / PASMO / IC", "Saldo JPY + riwayat")
-                    SupportedCardRow("Rakuten Edy", "Saldo JPY + riwayat")
-                    SupportedCardRow("T-Money & Cashbee", "Saldo KRW")
-                    SupportedCardRow("China T-Union / PBOC", "Saldo CNY")
-                    SupportedCardRow("Sydney Opal", "Saldo AUD")
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showSupportedCards = false }) { Text("Tutup") }
-            }
-        )
-    }
-
-    // Settings Dialog
-    if (showSettingsDialog) {
-        AlertDialog(
-            onDismissRequest = { showSettingsDialog = false },
-            title = {
-                Text("Pengaturan Aplikasi", fontWeight = FontWeight.Black, fontSize = 18.sp)
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    // Sound switch
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Suara pembacaan", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Bunyikan beep saat kartu berhasil dibaca", fontSize = 11.sp, color = textSubtleColor)
-                        }
-                        Switch(
-                            checked = settings.enableSound,
-                            onCheckedChange = { onSettingsChanged(settings.copy(enableSound = it)) }
-                        )
-                    }
-
-                    // Haptics switch
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Getar", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Getar saat kartu berhasil dibaca", fontSize = 11.sp, color = textSubtleColor)
-                        }
-                        Switch(
-                            checked = settings.enableHaptics,
-                            onCheckedChange = { onSettingsChanged(settings.copy(enableHaptics = it)) }
-                        )
-                    }
-
-                    // Auto-save switch
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Simpan otomatis", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Simpan snapshot dan riwayat kartu lokal", fontSize = 11.sp, color = textSubtleColor)
-                        }
-                        Switch(
-                            checked = settings.autoSaveHistory,
-                            onCheckedChange = { onSettingsChanged(settings.copy(autoSaveHistory = it)) }
-                        )
-                    }
-
-                    // Mask PAN switch
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Sensor Nomor Kartu", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Sembunyikan digit tengah nomor kartu", fontSize = 11.sp, color = textSubtleColor)
-                        }
-                        Switch(
-                            checked = settings.maskCardNumber,
-                            onCheckedChange = { onSettingsChanged(settings.copy(maskCardNumber = it)) }
-                        )
-                    }
-
-                    // Hide Balance switch
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Sembunyikan Saldo", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Tampilkan saldo bertanda titik", fontSize = 11.sp, color = textSubtleColor)
-                        }
-                        Switch(
-                            checked = settings.hideBalance,
-                            onCheckedChange = { onSettingsChanged(settings.copy(hideBalance = it)) }
-                        )
-                    }
-
-                    SettingSwitch("Ucapkan nominal", "Bacakan saldo setelah kartu terbaca", settings.speakAmount) {
-                        onSettingsChanged(settings.copy(speakAmount = it))
-                    }
-                    SettingSwitch("Warna transaksi", "Bedakan top up dan pembayaran", settings.showTransactionColors) {
-                        onSettingsChanged(settings.copy(showTransactionColors = it))
-                    }
-
-                    // Kategori Pemindaian Kartu
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Kategori Pemindaian", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        SettingSwitch("Perbankan Indonesia", "Mandiri e-Money, Flazz, Brizzi, TapCash, JakCard, MegaCash", settings.scanDomesticBanking) {
-                            onSettingsChanged(settings.copy(scanDomesticBanking = it))
-                        }
-                        SettingSwitch("Transit Domestik", "KMT Commuter Line & MRT Jakarta", settings.scanDomesticTransit) {
-                            onSettingsChanged(settings.copy(scanDomesticTransit = it))
-                        }
-                        SettingSwitch("Transit Regional / Global", "CEPAS Singapura (EZ-Link / NETS) & Suica / IC Jepang", settings.scanRegionalTransit) {
-                            onSettingsChanged(settings.copy(scanRegionalTransit = it))
-                        }
-                    }
-
-                    // Theme Selection
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Tema Tampilan", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = settings.darkTheme == null,
-                                onClick = { onSettingsChanged(settings.copy(darkTheme = null)) },
-                                label = { Text("Sistem") }
-                            )
-                            FilterChip(
-                                selected = settings.darkTheme == false,
-                                onClick = { onSettingsChanged(settings.copy(darkTheme = false)) },
-                                label = { Text("Terang") }
-                            )
-                            FilterChip(
-                                selected = settings.darkTheme == true,
-                                onClick = { onSettingsChanged(settings.copy(darkTheme = true)) },
-                                label = { Text("Gelap") }
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(modifier = Modifier.fillMaxWidth())
-
-                    OutlinedButton(
-                        onClick = {
-                            showSettingsDialog = false
-                            showSupportedCards = true
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Kartu yang Didukung", fontWeight = FontWeight.Bold)
-                    }
-
-                    // Clear All Data
-                    Button(
-                        onClick = {
-                            onClearAllData()
-                            showSettingsDialog = false
-                            Toast.makeText(context, "Semua data kartu dibersihkan", Toast.LENGTH_SHORT).show()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = NeoColors.Red),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Hapus Semua Data Tersimpan", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { showSettingsDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = NeoColors.Yellow),
-                    border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor)
-                ) {
-                    Text("Tutup", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text(strings.cancel, color = textSubtleColor)
                 }
             }
         )
@@ -598,7 +449,8 @@ fun CardVisualWidget(
     surfaceColor: Color,
     borderColor: Color,
     textColor: Color,
-    textSubtleColor: Color
+    textSubtleColor: Color,
+    onToggleMaskCardNumber: () -> Unit
 ) {
     val context = LocalContext.current
     val issuer = currentCard?.issuer ?: CardIssuer.UNKNOWN
@@ -725,12 +577,28 @@ fun CardVisualWidget(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = currentCard?.cardType ?: "Siap Memindai Kartu",
-                        color = Color.White.copy(alpha = 0.9f),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        IconButton(
+                            onClick = onToggleMaskCardNumber,
+                            modifier = Modifier.size(22.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (settings.maskCardNumber) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = "Toggle Sensor Nomor Kartu",
+                                tint = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Text(
+                            text = currentCard?.cardType ?: "Siap Memindai Kartu",
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                     if (currentCard != null) {
                         Box(
                             modifier = Modifier
@@ -766,6 +634,7 @@ fun BalanceWidget(
     onExportPdf: (CardBalanceResult) -> Unit,
     onPrintReceipt: (CardBalanceResult) -> Unit
 ) {
+    val strings = LocalAppStrings.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -775,15 +644,9 @@ fun BalanceWidget(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "SALDO SAAT INI",
-                color = textSubtleColor,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Black
-            )
             IconButton(
                 onClick = onToggleHideBalance,
                 modifier = Modifier.size(24.dp)
@@ -795,6 +658,13 @@ fun BalanceWidget(
                     modifier = Modifier.size(18.dp)
                 )
             }
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = strings.currentBalanceTitle,
+                color = textSubtleColor,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Black
+            )
         }
 
         Text(
@@ -826,7 +696,7 @@ fun BalanceWidget(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Icon(Icons.Default.Share, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                    Text("Bagikan", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    Text(strings.share, color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black)
                 }
             }
 
@@ -842,7 +712,7 @@ fun BalanceWidget(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Icon(Icons.Default.ContentCopy, contentDescription = null, tint = textColor, modifier = Modifier.size(16.dp))
-                    Text("Salin", color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    Text(strings.copy, color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Black)
                 }
             }
         }
@@ -851,12 +721,12 @@ fun BalanceWidget(
                 onClick = { currentCard?.let(onExportPdf) },
                 enabled = currentCard != null,
                 modifier = Modifier.weight(1f)
-            ) { Text("Ekspor PDF", fontWeight = FontWeight.Black) }
+            ) { Text(strings.exportPdf, fontWeight = FontWeight.Black) }
             OutlinedButton(
                 onClick = { currentCard?.let(onPrintReceipt) },
                 enabled = currentCard != null,
                 modifier = Modifier.weight(1f)
-            ) { Text("Cetak", fontWeight = FontWeight.Black) }
+            ) { Text(strings.print, fontWeight = FontWeight.Black) }
         }
     }
 }
@@ -943,6 +813,7 @@ fun HistoryGroupWidget(
     showTransactionColors: Boolean,
     onEditLocation: (String, String) -> Unit
 ) {
+    val strings = LocalAppStrings.current
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -985,7 +856,7 @@ fun HistoryGroupWidget(
                     ) {
                         Column {
                             Text(
-                                text = if (isTopUp) "+ Top up" else "- Payment",
+                                text = if (isTopUp) strings.topUp else strings.payment,
                                 color = typeColor,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Black
@@ -1000,7 +871,7 @@ fun HistoryGroupWidget(
 
                         Column(horizontalAlignment = Alignment.End) {
                             Text(
-                                text = formatRupiah(tx.amount),
+                                text = "${if (isTopUp) "+ " else "- "}${formatRupiah(tx.amount)}",
                                 color = typeColor,
                                 fontSize = 14.sp,
                                 fontFamily = FontFamily.Monospace,
@@ -1008,7 +879,7 @@ fun HistoryGroupWidget(
                             )
                             if (tx.balance != null) {
                                 Text(
-                                    text = "Saldo Akhir: ${formatRupiah(tx.balance)}",
+                                    text = "${strings.endingBalance}${formatRupiah(tx.balance)}",
                                     color = textSubtleColor,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -1030,7 +901,7 @@ fun HistoryGroupWidget(
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
                             )
-                            val locName = locationAliases[tx.terminalId ?: ""] ?: tx.terminalId ?: "Lokasi Umum"
+                            val locName = id.tapmoney.data.TerminalCatalog.resolveLocation(tx.terminalId, locationAliases, strings.locationUnknown)
                             Text(
                                 text = locName,
                                 color = textColor,
@@ -1071,6 +942,7 @@ fun SavedCardItemWidget(
     onSelect: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val strings = LocalAppStrings.current
     val sdf = SimpleDateFormat("dd MMM, HH:mm", Locale("id", "ID"))
     val dateStr = sdf.format(Date(card.timestamp))
 
@@ -1103,7 +975,7 @@ fun SavedCardItemWidget(
                             .border(1.dp, borderColor, RoundedCornerShape(3.dp))
                             .padding(horizontal = 4.dp, vertical = 1.dp)
                     ) {
-                        Text("AKTIF", color = Color.Black, fontSize = 8.sp, fontWeight = FontWeight.Black)
+                        Text(strings.active, color = Color.Black, fontSize = 8.sp, fontWeight = FontWeight.Black)
                     }
                 }
             }
@@ -1115,7 +987,7 @@ fun SavedCardItemWidget(
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = "Tap: $dateStr",
+                text = "${strings.tapTimePrefix}$dateStr",
                 color = textSubtleColor,
                 fontSize = 10.sp
             )
@@ -1134,7 +1006,7 @@ fun SavedCardItemWidget(
                 onClick = onDelete,
                 modifier = Modifier.size(28.dp)
             ) {
-                Icon(Icons.Default.Delete, contentDescription = "Hapus", tint = NeoColors.Red, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Delete, contentDescription = strings.delete, tint = NeoColors.Red, modifier = Modifier.size(16.dp))
             }
         }
     }
@@ -1179,63 +1051,30 @@ fun EmptyTray(
     }
 }
 
-@Composable
-private fun SettingSwitch(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
+fun receiptText(card: CardBalanceResult, isEnglish: Boolean = false): String {
+    return ReceiptFormatter.formatTextReceipt(card, isEnglish)
 }
 
-@Composable
-private fun SupportedCardRow(name: String, capability: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(name, fontWeight = FontWeight.Bold)
-        Text(capability, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-fun receiptText(card: CardBalanceResult): String {
-    val tx = card.history.firstOrNull()
-    return """
-        === STRUK SALDO TAPMONEY ===
-        Kartu   : ${card.cardType}
-        Nomor   : ${formatCardNumber(card.cardNumber, true)}
-        Saldo   : ${formatRupiah(card.balance)}
-        Transaksi terakhir: ${tx?.type ?: "-"} ${tx?.let { formatRupiah(it.amount) } ?: "-"}
-        Tanggal/Jam: ${tx?.let { "${it.date} ${it.time}" } ?: "-"}
-        Terminal: ${tx?.terminalId ?: "-"}
-        ============================
-    """.trimIndent()
-}
-
-fun shareReceipt(context: Context, card: CardBalanceResult?) {
+fun shareReceipt(context: Context, card: CardBalanceResult?, isEnglish: Boolean = false) {
     if (card == null) return
-    val text = receiptText(card)
+    val text = receiptText(card, isEnglish)
 
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_TEXT, text)
     }
-    context.startActivity(Intent.createChooser(intent, "Bagikan Struk"))
+    context.startActivity(Intent.createChooser(intent, if (isEnglish) "Share Receipt" else "Bagikan Struk"))
 }
 
-fun copyReceipt(context: Context, card: CardBalanceResult?) {
+fun copyReceipt(context: Context, card: CardBalanceResult?, isEnglish: Boolean = false) {
     if (card == null) return
-    val text = receiptText(card)
+    val text = receiptText(card, isEnglish)
 
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText("Struk Saldo", text))
-    Toast.makeText(context, "Struk disalin ke clipboard", Toast.LENGTH_SHORT).show()
+    Toast.makeText(
+        context,
+        if (isEnglish) "Receipt copied to clipboard" else "Struk disalin ke clipboard",
+        Toast.LENGTH_SHORT
+    ).show()
 }

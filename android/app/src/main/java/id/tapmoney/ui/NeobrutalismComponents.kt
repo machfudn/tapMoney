@@ -78,9 +78,15 @@ fun formatRupiah(amount: Long): String {
 
 fun formatCardNumber(num: String, mask: Boolean = false): String {
     val clean = num.replace(" ", "")
-    val spaced = clean.chunked(4).joinToString(" ")
-    if (!mask || clean.length < 12) return spaced
-    val first4 = clean.take(4)
-    val last4 = clean.takeLast(4)
-    return "$first4 **** **** $last4"
+    val isAllDigits = clean.length in 12..19 && clean.all { it.isDigit() }
+    if (isAllDigits) {
+        val spaced = clean.chunked(4).joinToString(" ")
+        if (!mask) return spaced
+        val first4 = clean.take(4)
+        val last4 = clean.takeLast(4)
+        val middle = if (clean.length == 16) "**** ****" else "*".repeat(clean.length - 8)
+        return "$first4 $middle $last4"
+    }
+    // If it's a chip UID (hardware serial with hex letters or short length)
+    return "UID: " + clean.chunked(2).joinToString(":")
 }

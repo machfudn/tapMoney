@@ -66,5 +66,6 @@ data class UserSettings(
     val scanDomesticBanking: Boolean = true,
     val scanDomesticTransit: Boolean = true,
     val scanRegionalTransit: Boolean = true,
-    val darkTheme: Boolean? = null
+    val darkTheme: Boolean? = null,
+    val appLanguage: String? = null
 )
