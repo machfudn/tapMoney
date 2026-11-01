@@ -65,9 +65,10 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
         loadSettings()
         loadData()
+        checkNfcStatus()
 
         setContent {
-            val appStrings = getAppStrings(settingsState.value.appLanguage)
+            val appStrings = getAppStrings(settingsState.value.appLanguage, this)
             CompositionLocalProvider(LocalAppStrings provides appStrings) {
                 MainScreen(
                     currentCard = currentCardState.value,
@@ -163,13 +164,14 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
     private fun checkNfcStatus() {
         val adapter = nfcAdapter
+        val strings = getAppStrings(settingsState.value.appLanguage, this)
         nfcEnabledState.value = adapter != null && adapter.isEnabled
         if (adapter == null) {
-            statusMessageState.value = "Perangkat tidak memiliki hardware NFC"
+            statusMessageState.value = strings.statusNoHardware
         } else if (!adapter.isEnabled) {
-            statusMessageState.value = "NFC mati. Silakan aktifkan di Pengaturan."
+            statusMessageState.value = strings.statusNfcDisabled
         } else {
-            statusMessageState.value = "Sensor siap • Tempelkan kartu di belakang ponsel"
+            statusMessageState.value = strings.statusSensorReady
         }
     }
 
@@ -198,8 +200,9 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     override fun onTagDiscovered(tag: Tag?) {
         if (tag == null) return
 
+        val strings = getAppStrings(settingsState.value.appLanguage, this)
         runOnUiThread {
-            statusMessageState.value = "Membaca kartu uang elektronik..."
+            statusMessageState.value = strings.statusReadingCard
         }
 
         lifecycleScope.launch(Dispatchers.IO) {
@@ -214,10 +217,10 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                     }
                     if (settingsState.value.autoSaveHistory) db.saveCard(result)
                     currentCardState.value = result
-                    statusMessageState.value = if (isEn) "Successfully read: ${result.cardType}" else "Berhasil membaca: ${result.cardType}"
+                    statusMessageState.value = "${strings.statusReadSuccessPrefix}${result.cardType}"
                     loadData()
                 } else {
-                    statusMessageState.value = if (isEn) "Failed to read card or card removed too quickly" else "Gagal membaca kartu atau kartu terlepas terlalu cepat"
+                    statusMessageState.value = strings.statusReadFailed
                 }
             }
         }

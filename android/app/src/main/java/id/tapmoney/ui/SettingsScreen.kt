@@ -236,6 +236,8 @@ fun SettingsScreen(
                                 surfaceAltColor = surfaceAltColor,
                                 borderColor = borderColor,
                                 textColor = textColor,
+                                textSubtleColor = textSubtleColor,
+                                headerColor = headerColor,
                                 strings = strings,
                                 onSelect = { onSettingsChanged(settings.copy(appLanguage = it)) }
                             )
@@ -325,12 +327,12 @@ fun SettingsScreen(
                                 fontSize = 12.sp,
                                 color = headerColor
                             )
-                            SupportedCardItem("e-Money Mandiri", "Saldo + riwayat", textColor, textSubtleColor, isDark, headerColor)
-                            SupportedCardItem("BCA Flazz", "Saldo + riwayat", textColor, textSubtleColor, isDark, headerColor)
-                            SupportedCardItem("Brizzi BRI", "Saldo + riwayat", textColor, textSubtleColor, isDark, headerColor)
-                            SupportedCardItem("TapCash BNI", "Saldo + riwayat", textColor, textSubtleColor, isDark, headerColor)
-                            SupportedCardItem("JakCard Bank DKI", "Saldo", textColor, textSubtleColor, isDark, headerColor)
-                            SupportedCardItem("MegaCash Bank Mega", "Saldo", textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("e-Money Mandiri", strings.capBalanceHistory, textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("BCA Flazz", strings.capBalanceHistory, textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("Brizzi BRI", strings.capBalanceHistory, textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("TapCash BNI", strings.capBalanceHistory, textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("JakCard Bank DKI", strings.capBalanceOnly, textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("MegaCash Bank Mega", strings.capBalanceOnly, textColor, textSubtleColor, isDark, headerColor)
 
                             Spacer(modifier = Modifier.height(4.dp))
                             HorizontalDivider(color = borderColor.copy(alpha = 0.2f), thickness = 1.dp)
@@ -342,8 +344,8 @@ fun SettingsScreen(
                                 fontSize = 12.sp,
                                 color = headerColor
                             )
-                            SupportedCardItem("KMT Commuter Line", "Saldo + riwayat + stasiun", textColor, textSubtleColor, isDark, headerColor)
-                            SupportedCardItem("MRT Jakarta (MRTJ)", "Saldo + transaksi terakhir", textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("KMT Commuter Line", strings.capBalanceHistoryStation, textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("MRT Jakarta (MRTJ)", strings.capBalanceLastTx, textColor, textSubtleColor, isDark, headerColor)
 
                             Spacer(modifier = Modifier.height(4.dp))
                             HorizontalDivider(color = borderColor.copy(alpha = 0.2f), thickness = 1.dp)
@@ -355,12 +357,12 @@ fun SettingsScreen(
                                 fontSize = 12.sp,
                                 color = headerColor
                             )
-                            SupportedCardItem("CEPAS (EZ-Link / NETS)", "Saldo SGD + riwayat", textColor, textSubtleColor, isDark, headerColor)
-                            SupportedCardItem("Suica / PASMO / IC", "Saldo JPY + riwayat", textColor, textSubtleColor, isDark, headerColor)
-                            SupportedCardItem("Rakuten Edy", "Saldo JPY + riwayat", textColor, textSubtleColor, isDark, headerColor)
-                            SupportedCardItem("T-Money & Cashbee", "Saldo KRW", textColor, textSubtleColor, isDark, headerColor)
-                            SupportedCardItem("China T-Union / PBOC", "Saldo CNY", textColor, textSubtleColor, isDark, headerColor)
-                            SupportedCardItem("Sydney Opal", "Saldo AUD", textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("CEPAS (EZ-Link / NETS)", strings.capSgdBalanceHistory, textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("Suica / PASMO / IC", strings.capJpyBalanceHistory, textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("Rakuten Edy", strings.capJpyBalanceHistory, textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("T-Money & Cashbee", strings.capKrwBalance, textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("China T-Union / PBOC", strings.capCnyBalance, textColor, textSubtleColor, isDark, headerColor)
+                            SupportedCardItem("Sydney Opal", strings.capAudBalance, textColor, textSubtleColor, isDark, headerColor)
                         }
                     }
 
@@ -572,53 +574,109 @@ private fun LanguageSelector(
     surfaceAltColor: Color,
     borderColor: Color,
     textColor: Color,
+    textSubtleColor: Color,
+    headerColor: Color,
     strings: AppStrings,
     onSelect: (String?) -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        listOf(
-            Triple(null, strings.langSystem, Icons.Default.SettingsSuggest),
-            Triple("id", strings.langIndonesian, Icons.Default.Language),
-            Triple("en", strings.langEnglish, Icons.Default.Language)
-        ).forEach { (langValue, label, icon) ->
-            val isSelected = selectedLanguage == langValue
-            val btnBg = if (isSelected) NeoColors.Yellow else surfaceAltColor
-            val contentColor = if (isSelected) Color.Black else textColor
+    var expanded by remember { mutableStateOf(false) }
 
-            Button(
-                onClick = { onSelect(langValue) },
-                colors = ButtonDefaults.buttonColors(containerColor = btnBg),
-                modifier = Modifier
-                    .weight(1f)
-                    .neoCard(
-                        bgColor = btnBg,
-                        borderColor = borderColor,
-                        shadowOffset = if (isSelected) 2.dp else 1.dp,
-                        cornerRadius = 6.dp
-                    ),
-                shape = RoundedCornerShape(6.dp),
-                contentPadding = PaddingValues(vertical = 8.dp)
+    val languages = listOf(
+        Triple(null, strings.langSystem, Icons.Default.SettingsSuggest),
+        Triple("id", strings.langIndonesian, Icons.Default.Language),
+        Triple("en", strings.langEnglish, Icons.Default.Language)
+    )
+
+    val currentSelection = languages.find { it.first == selectedLanguage } ?: languages.first()
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .neoCard(
+                    bgColor = surfaceAltColor,
+                    borderColor = borderColor,
+                    shadowOffset = 2.dp,
+                    cornerRadius = 8.dp
+                )
+                .clickable { expanded = true }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = contentColor,
-                        modifier = Modifier.size(14.dp)
+                Icon(
+                    imageVector = currentSelection.third,
+                    contentDescription = null,
+                    tint = headerColor,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = currentSelection.second,
+                    color = textColor,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Icon(
+                imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                contentDescription = null,
+                tint = textColor,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .background(surfaceColor)
+                .border(2.dp, borderColor, RoundedCornerShape(8.dp))
+        ) {
+            languages.forEach { (langValue, label, icon) ->
+                val isSelected = selectedLanguage == langValue
+                DropdownMenuItem(
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = if (isSelected) headerColor else textSubtleColor,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = label,
+                                color = if (isSelected) headerColor else textColor,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.Medium
+                            )
+                        }
+                    },
+                    trailingIcon = {
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = NeoColors.Green,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    },
+                    onClick = {
+                        onSelect(langValue)
+                        expanded = false
+                    },
+                    modifier = Modifier.background(
+                        if (isSelected) surfaceAltColor else surfaceColor
                     )
-                    Text(
-                        text = label,
-                        color = contentColor,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
+                )
             }
         }
     }

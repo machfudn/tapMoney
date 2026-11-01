@@ -1,5 +1,6 @@
 package id.tapmoney.ui
 
+import android.content.Context
 import androidx.compose.runtime.compositionLocalOf
 import java.util.Locale
 
@@ -36,10 +37,21 @@ interface AppStrings {
     val editLocationTitle: String
     val terminalIdLabel: String
     val locationInputLabel: String
+    val locationHeader: String
+    val editLocationAction: String
     val save: String
     val cancel: String
     val locationSavedToast: String
     val locationUnknown: String
+
+    val cardNumberLabel: String
+    val cardNumberCopiedToast: String
+    val readyToScan: String
+    val statusRead: String
+    val toggleMaskCardNumber: String
+    val toggleHideBalance: String
+    val receiptCopiedToast: String
+    val defaultCardLabel: String
 
     val receiptTitle: String
     val receiptCard: String
@@ -102,6 +114,23 @@ interface AppStrings {
     val deleteConfirmMessage: String
     val deleteConfirmButton: String
     val dataClearedToast: String
+
+    val capBalanceHistory: String
+    val capBalanceOnly: String
+    val capBalanceHistoryStation: String
+    val capBalanceLastTx: String
+    val capSgdBalanceHistory: String
+    val capJpyBalanceHistory: String
+    val capKrwBalance: String
+    val capCnyBalance: String
+    val capAudBalance: String
+
+    val statusNoHardware: String
+    val statusNfcDisabled: String
+    val statusSensorReady: String
+    val statusReadingCard: String
+    val statusReadFailed: String
+    val statusReadSuccessPrefix: String
 }
 
 object AppStringsId : AppStrings {
@@ -127,20 +156,31 @@ object AppStringsId : AppStrings {
 
     override val active = "AKTIF"
     override val delete = "Hapus"
-    override val viewAll = "View All"
-    override val showLess = "Show Less"
-    override val topUp = "Top up"
-    override val payment = "Payment"
+    override val viewAll = "Lihat Semua"
+    override val showLess = "Lebih Sedikit"
+    override val topUp = "Top Up"
+    override val payment = "Pembayaran"
     override val endingBalance = "Saldo Akhir: "
     override val tapTimePrefix = "Tap: "
 
     override val editLocationTitle = "Ubah Nama Lokasi"
     override val terminalIdLabel = "Terminal ID: "
     override val locationInputLabel = "Nama Lokasi / Merchant"
+    override val locationHeader = "Lokasi"
+    override val editLocationAction = "Ubah Lokasi"
     override val save = "Simpan"
     override val cancel = "Batal"
     override val locationSavedToast = "Nama lokasi disimpan"
     override val locationUnknown = "Tidak dikenali"
+
+    override val cardNumberLabel = "Nomor kartu"
+    override val cardNumberCopiedToast = "Nomor kartu disalin"
+    override val readyToScan = "Siap Memindai Kartu"
+    override val statusRead = "TERBACA"
+    override val toggleMaskCardNumber = "Sensor nomor kartu"
+    override val toggleHideBalance = "Sembunyikan saldo"
+    override val receiptCopiedToast = "Struk disalin ke clipboard"
+    override val defaultCardLabel = "KARTU NFC"
 
     override val receiptTitle = "=== STRUK SALDO TAPMONEY ==="
     override val receiptCard = "Kartu   : "
@@ -203,6 +243,23 @@ object AppStringsId : AppStrings {
     override val deleteConfirmMessage = "Semua kartu yang tersimpan beserta seluruh riwayat transaksi on-chip akan dihapus permanen dari perangkat ini."
     override val deleteConfirmButton = "Hapus"
     override val dataClearedToast = "Semua data kartu telah dihapus"
+
+    override val capBalanceHistory = "Saldo + riwayat"
+    override val capBalanceOnly = "Saldo"
+    override val capBalanceHistoryStation = "Saldo + riwayat + stasiun"
+    override val capBalanceLastTx = "Saldo + transaksi terakhir"
+    override val capSgdBalanceHistory = "Saldo SGD + riwayat"
+    override val capJpyBalanceHistory = "Saldo JPY + riwayat"
+    override val capKrwBalance = "Saldo KRW"
+    override val capCnyBalance = "Saldo CNY"
+    override val capAudBalance = "Saldo AUD"
+
+    override val statusNoHardware = "Perangkat tidak memiliki hardware NFC"
+    override val statusNfcDisabled = "NFC mati. Silakan aktifkan di Pengaturan."
+    override val statusSensorReady = "Sensor siap • Tempelkan kartu di belakang ponsel"
+    override val statusReadingCard = "Membaca kartu uang elektronik..."
+    override val statusReadFailed = "Gagal membaca kartu atau kartu terlepas terlalu cepat"
+    override val statusReadSuccessPrefix = "Berhasil membaca: "
 }
 
 object AppStringsEn : AppStrings {
@@ -230,7 +287,7 @@ object AppStringsEn : AppStrings {
     override val delete = "Delete"
     override val viewAll = "View All"
     override val showLess = "Show Less"
-    override val topUp = "Top up"
+    override val topUp = "Top Up"
     override val payment = "Payment"
     override val endingBalance = "Ending Balance: "
     override val tapTimePrefix = "Tap: "
@@ -238,10 +295,21 @@ object AppStringsEn : AppStrings {
     override val editLocationTitle = "Edit Location Name"
     override val terminalIdLabel = "Terminal ID: "
     override val locationInputLabel = "Location / Merchant Name"
+    override val locationHeader = "Location"
+    override val editLocationAction = "Edit Location"
     override val save = "Save"
     override val cancel = "Cancel"
     override val locationSavedToast = "Location name saved"
     override val locationUnknown = "Unknown"
+
+    override val cardNumberLabel = "Card number"
+    override val cardNumberCopiedToast = "Card number copied"
+    override val readyToScan = "Ready to Scan Card"
+    override val statusRead = "READ"
+    override val toggleMaskCardNumber = "Mask card number"
+    override val toggleHideBalance = "Hide balance"
+    override val receiptCopiedToast = "Receipt copied to clipboard"
+    override val defaultCardLabel = "NFC CARD"
 
     override val receiptTitle = "=== TAPMONEY BALANCE RECEIPT ==="
     override val receiptCard = "Card    : "
@@ -304,6 +372,189 @@ object AppStringsEn : AppStrings {
     override val deleteConfirmMessage = "All saved cards and their on-chip transaction logs will be permanently erased from this device."
     override val deleteConfirmButton = "Delete"
     override val dataClearedToast = "All card data has been deleted"
+
+    override val capBalanceHistory = "Balance + history"
+    override val capBalanceOnly = "Balance"
+    override val capBalanceHistoryStation = "Balance + history + station"
+    override val capBalanceLastTx = "Balance + last transaction"
+    override val capSgdBalanceHistory = "SGD balance + history"
+    override val capJpyBalanceHistory = "JPY balance + history"
+    override val capKrwBalance = "KRW balance"
+    override val capCnyBalance = "CNY balance"
+    override val capAudBalance = "AUD balance"
+
+    override val statusNoHardware = "Device does not have NFC hardware"
+    override val statusNfcDisabled = "NFC is disabled. Please enable it in Settings."
+    override val statusSensorReady = "Sensor ready • Tap card on the back of phone"
+    override val statusReadingCard = "Reading electronic money card..."
+    override val statusReadFailed = "Failed to read card or card removed too quickly"
+    override val statusReadSuccessPrefix = "Successfully read: "
+}
+
+class JsonBackedAppStrings(
+    private val data: Map<String, String>,
+    private val fallback: AppStrings = AppStringsId
+) : AppStrings {
+    private fun get(key: String, default: String): String = data[key]?.takeIf { it.isNotBlank() } ?: default
+
+    override val tabChipHistory get() = get("tabChipHistory", fallback.tabChipHistory)
+    override val tabSavedCards get() = get("tabSavedCards", fallback.tabSavedCards)
+    override val clear get() = get("clear", fallback.clear)
+
+    override val noChipTransactionsTitle get() = get("noChipTransactionsTitle", fallback.noChipTransactionsTitle)
+    override val noChipTransactionsCardSubtitle get() = get("noChipTransactionsCardSubtitle", fallback.noChipTransactionsCardSubtitle)
+    override val noChipTransactionsIdleSubtitle get() = get("noChipTransactionsIdleSubtitle", fallback.noChipTransactionsIdleSubtitle)
+    override val noSavedCardsTitle get() = get("noSavedCardsTitle", fallback.noSavedCardsTitle)
+    override val noSavedCardsSubtitle get() = get("noSavedCardsSubtitle", fallback.noSavedCardsSubtitle)
+    override val nfcDisabled get() = get("nfcDisabled", fallback.nfcDisabled)
+    override val enable get() = get("enable", fallback.enable)
+
+    override val share get() = get("share", fallback.share)
+    override val copy get() = get("copy", fallback.copy)
+    override val exportPdf get() = get("exportPdf", fallback.exportPdf)
+    override val print get() = get("print", fallback.print)
+    override val closeCard get() = get("closeCard", fallback.closeCard)
+    override val settings get() = get("settings", fallback.settings)
+    override val currentBalanceTitle get() = get("currentBalanceTitle", fallback.currentBalanceTitle)
+
+    override val active get() = get("active", fallback.active)
+    override val delete get() = get("delete", fallback.delete)
+    override val viewAll get() = get("viewAll", fallback.viewAll)
+    override val showLess get() = get("showLess", fallback.showLess)
+    override val topUp get() = get("topUp", fallback.topUp)
+    override val payment get() = get("payment", fallback.payment)
+    override val endingBalance get() = get("endingBalance", fallback.endingBalance)
+    override val tapTimePrefix get() = get("tapTimePrefix", fallback.tapTimePrefix)
+
+    override val editLocationTitle get() = get("editLocationTitle", fallback.editLocationTitle)
+    override val terminalIdLabel get() = get("terminalIdLabel", fallback.terminalIdLabel)
+    override val locationInputLabel get() = get("locationInputLabel", fallback.locationInputLabel)
+    override val locationHeader get() = get("locationHeader", fallback.locationHeader)
+    override val editLocationAction get() = get("editLocationAction", fallback.editLocationAction)
+    override val save get() = get("save", fallback.save)
+    override val cancel get() = get("cancel", fallback.cancel)
+    override val locationSavedToast get() = get("locationSavedToast", fallback.locationSavedToast)
+    override val locationUnknown get() = get("locationUnknown", fallback.locationUnknown)
+
+    override val cardNumberLabel get() = get("cardNumberLabel", fallback.cardNumberLabel)
+    override val cardNumberCopiedToast get() = get("cardNumberCopiedToast", fallback.cardNumberCopiedToast)
+    override val readyToScan get() = get("readyToScan", fallback.readyToScan)
+    override val statusRead get() = get("statusRead", fallback.statusRead)
+    override val toggleMaskCardNumber get() = get("toggleMaskCardNumber", fallback.toggleMaskCardNumber)
+    override val toggleHideBalance get() = get("toggleHideBalance", fallback.toggleHideBalance)
+    override val receiptCopiedToast get() = get("receiptCopiedToast", fallback.receiptCopiedToast)
+    override val defaultCardLabel get() = get("defaultCardLabel", fallback.defaultCardLabel)
+
+    override val receiptTitle get() = get("receiptTitle", fallback.receiptTitle)
+    override val receiptCard get() = get("receiptCard", fallback.receiptCard)
+    override val receiptNumber get() = get("receiptNumber", fallback.receiptNumber)
+    override val receiptBalance get() = get("receiptBalance", fallback.receiptBalance)
+    override val receiptLastTx get() = get("receiptLastTx", fallback.receiptLastTx)
+    override val receiptDateTime get() = get("receiptDateTime", fallback.receiptDateTime)
+    override val receiptTerminal get() = get("receiptTerminal", fallback.receiptTerminal)
+    override val receiptShareTitle get() = get("receiptShareTitle", fallback.receiptShareTitle)
+
+    override val settingsTitle get() = get("settingsTitle", fallback.settingsTitle)
+    override val tabScanning get() = get("tabScanning", fallback.tabScanning)
+    override val tabPrivacy get() = get("tabPrivacy", fallback.tabPrivacy)
+    override val tabCardsData get() = get("tabCardsData", fallback.tabCardsData)
+
+    override val secSensorFeedback get() = get("secSensorFeedback", fallback.secSensorFeedback)
+    override val soundTitle get() = get("soundTitle", fallback.soundTitle)
+    override val soundSubtitle get() = get("soundSubtitle", fallback.soundSubtitle)
+    override val hapticsTitle get() = get("hapticsTitle", fallback.hapticsTitle)
+    override val hapticsSubtitle get() = get("hapticsSubtitle", fallback.hapticsSubtitle)
+    override val speakTitle get() = get("speakTitle", fallback.speakTitle)
+    override val speakSubtitle get() = get("speakSubtitle", fallback.speakSubtitle)
+    override val secScanCategories get() = get("secScanCategories", fallback.secScanCategories)
+    override val catBankingTitle get() = get("catBankingTitle", fallback.catBankingTitle)
+    override val catBankingSubtitle get() = get("catBankingSubtitle", fallback.catBankingSubtitle)
+    override val catDomesticTransitTitle get() = get("catDomesticTransitTitle", fallback.catDomesticTransitTitle)
+    override val catDomesticTransitSubtitle get() = get("catDomesticTransitSubtitle", fallback.catDomesticTransitSubtitle)
+    override val catRegionalTransitTitle get() = get("catRegionalTransitTitle", fallback.catRegionalTransitTitle)
+    override val catRegionalTransitSubtitle get() = get("catRegionalTransitSubtitle", fallback.catRegionalTransitSubtitle)
+
+    override val secTheme get() = get("secTheme", fallback.secTheme)
+    override val themeSubtitle get() = get("themeSubtitle", fallback.themeSubtitle)
+    override val themeSystem get() = get("themeSystem", fallback.themeSystem)
+    override val themeLight get() = get("themeLight", fallback.themeLight)
+    override val themeDark get() = get("themeDark", fallback.themeDark)
+    override val secLanguage get() = get("secLanguage", fallback.secLanguage)
+    override val languageSubtitle get() = get("languageSubtitle", fallback.languageSubtitle)
+    override val langSystem get() = get("langSystem", fallback.langSystem)
+    override val langIndonesian get() = get("langIndonesian", fallback.langIndonesian)
+    override val langEnglish get() = get("langEnglish", fallback.langEnglish)
+    override val secCardPrivacy get() = get("secCardPrivacy", fallback.secCardPrivacy)
+    override val maskPanTitle get() = get("maskPanTitle", fallback.maskPanTitle)
+    override val maskPanSubtitle get() = get("maskPanSubtitle", fallback.maskPanSubtitle)
+    override val hideBalanceTitle get() = get("hideBalanceTitle", fallback.hideBalanceTitle)
+    override val hideBalanceSubtitle get() = get("hideBalanceSubtitle", fallback.hideBalanceSubtitle)
+    override val txColorsTitle get() = get("txColorsTitle", fallback.txColorsTitle)
+    override val txColorsSubtitle get() = get("txColorsSubtitle", fallback.txColorsSubtitle)
+    override val secStorage get() = get("secStorage", fallback.secStorage)
+    override val autoSaveTitle get() = get("autoSaveTitle", fallback.autoSaveTitle)
+    override val autoSaveSubtitle get() = get("autoSaveSubtitle", fallback.autoSaveSubtitle)
+
+    override val secSupportedCards get() = get("secSupportedCards", fallback.secSupportedCards)
+    override val catBankingHeader get() = get("catBankingHeader", fallback.catBankingHeader)
+    override val catDomesticTransitHeader get() = get("catDomesticTransitHeader", fallback.catDomesticTransitHeader)
+    override val catRegionalTransitHeader get() = get("catRegionalTransitHeader", fallback.catRegionalTransitHeader)
+    override val secLocalStorage get() = get("secLocalStorage", fallback.secLocalStorage)
+    override val localStorageSubtitle get() = get("localStorageSubtitle", fallback.localStorageSubtitle)
+    override val deleteAllDataButton get() = get("deleteAllDataButton", fallback.deleteAllDataButton)
+    override val deleteConfirmTitle get() = get("deleteConfirmTitle", fallback.deleteConfirmTitle)
+    override val deleteConfirmMessage get() = get("deleteConfirmMessage", fallback.deleteConfirmMessage)
+    override val deleteConfirmButton get() = get("deleteConfirmButton", fallback.deleteConfirmButton)
+    override val dataClearedToast get() = get("dataClearedToast", fallback.dataClearedToast)
+
+    override val capBalanceHistory get() = get("capBalanceHistory", fallback.capBalanceHistory)
+    override val capBalanceOnly get() = get("capBalanceOnly", fallback.capBalanceOnly)
+    override val capBalanceHistoryStation get() = get("capBalanceHistoryStation", fallback.capBalanceHistoryStation)
+    override val capBalanceLastTx get() = get("capBalanceLastTx", fallback.capBalanceLastTx)
+    override val capSgdBalanceHistory get() = get("capSgdBalanceHistory", fallback.capSgdBalanceHistory)
+    override val capJpyBalanceHistory get() = get("capJpyBalanceHistory", fallback.capJpyBalanceHistory)
+    override val capKrwBalance get() = get("capKrwBalance", fallback.capKrwBalance)
+    override val capCnyBalance get() = get("capCnyBalance", fallback.capCnyBalance)
+    override val capAudBalance get() = get("capAudBalance", fallback.capAudBalance)
+
+    override val statusNoHardware get() = get("statusNoHardware", fallback.statusNoHardware)
+    override val statusNfcDisabled get() = get("statusNfcDisabled", fallback.statusNfcDisabled)
+    override val statusSensorReady get() = get("statusSensorReady", fallback.statusSensorReady)
+    override val statusReadingCard get() = get("statusReadingCard", fallback.statusReadingCard)
+    override val statusReadFailed get() = get("statusReadFailed", fallback.statusReadFailed)
+    override val statusReadSuccessPrefix get() = get("statusReadSuccessPrefix", fallback.statusReadSuccessPrefix)
+}
+
+object JsonI18nLoader {
+    private val cache = mutableMapOf<String, Map<String, String>>()
+    private val kvRegex = """"([^"\\]*(?:\\.[^"\\]*)*)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"""".toRegex()
+
+    fun parseJsonString(jsonStr: String): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        for (match in kvRegex.findAll(jsonStr)) {
+            val key = match.groupValues[1]
+            val value = match.groupValues[2]
+                .replace("\\n", "\n")
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\")
+            map[key] = value
+        }
+        return map
+    }
+
+    fun load(context: Context?, langCode: String): Map<String, String> {
+        if (context == null) return emptyMap()
+        cache[langCode]?.let { return it }
+        val loaded = try {
+            context.assets.open("lang/$langCode.json").bufferedReader().use { reader ->
+                parseJsonString(reader.readText())
+            }
+        } catch (e: Exception) {
+            emptyMap()
+        }
+        cache[langCode] = loaded
+        return loaded
+    }
 }
 
 fun resolveIsEnglish(appLanguage: String?): Boolean {
@@ -314,8 +565,11 @@ fun resolveIsEnglish(appLanguage: String?): Boolean {
     }
 }
 
-fun getAppStrings(appLanguage: String?): AppStrings {
-    return if (resolveIsEnglish(appLanguage)) AppStringsEn else AppStringsId
+fun getAppStrings(appLanguage: String?, context: Context? = null): AppStrings {
+    val langCode = if (resolveIsEnglish(appLanguage)) "en" else "id"
+    val jsonMap = JsonI18nLoader.load(context, langCode)
+    val fallback = if (langCode == "en") AppStringsEn else AppStringsId
+    return if (jsonMap.isNotEmpty()) JsonBackedAppStrings(jsonMap, fallback) else fallback
 }
 
 val LocalAppStrings = compositionLocalOf<AppStrings> { AppStringsId }

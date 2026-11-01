@@ -82,10 +82,10 @@ object ReceiptFormatter {
             sb.append(center(emptyMsg, lineWidth)).append("\n")
         } else {
             card.history.take(maxTransactions).forEach { tx ->
-                val dateTime = "${tx.date} ${tx.time}"
-                sb.append(twoColumn(dateTime, tx.type, lineWidth)).append("\n")
-
                 val isTopUp = tx.type.contains("Top", true) || tx.type.contains("Isi", true)
+                val displayType = if (isTopUp) "Top Up" else (if (isEnglish) "Payment" else "Pembayaran")
+                val dateTime = "${tx.date} ${tx.time}"
+                sb.append(twoColumn(dateTime, displayType, lineWidth)).append("\n")
                 val sign = if (isTopUp) "+" else "-"
                 val amtLabel = if (isEnglish) "  Amount" else "  Nominal"
                 sb.append(twoColumn(amtLabel, "$sign ${formatRupiah(tx.amount)}", lineWidth)).append("\n")

@@ -341,10 +341,11 @@ object ReceiptExporter {
                 paint.textSize = 8f
                 canvas.drawText("${tx.date} ${tx.time}", col1X, rowTop + 16f, paint)
 
-                paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                canvas.drawText(tx.type, col2X, rowTop + 16f, paint)
-
                 val isTopUp = tx.type.contains("Top", true) || tx.type.contains("Isi", true)
+                val displayType = if (isTopUp) "Top Up" else (if (isEnglish) "Payment" else "Pembayaran")
+                paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                canvas.drawText(displayType, col2X, rowTop + 16f, paint)
+
                 paint.color = if (isTopUp) COLOR_GREEN else COLOR_RED
                 paint.textAlign = Paint.Align.RIGHT
                 val amtStr = "${if (isTopUp) "+ " else "- "}${formatRupiah(tx.amount)}"

@@ -245,7 +245,8 @@ fun MainScreen(
                     val history = currentCard?.history ?: emptyList()
                     if (history.isNotEmpty()) {
                         val displayHistory = if (showAllHistory) history else history.take(3)
-                        val grouped = groupHistoryByDate(displayHistory)
+                        val isEn = resolveIsEnglish(settings.appLanguage)
+                        val grouped = groupHistoryByDate(displayHistory, isEn)
                         items(grouped) { group ->
                             HistoryGroupWidget(
                                 group = group,
@@ -478,6 +479,7 @@ fun CardVisualWidget(
     onToggleMaskCardNumber: () -> Unit
 ) {
     val context = LocalContext.current
+    val strings = LocalAppStrings.current
     val issuer = currentCard?.issuer ?: CardIssuer.UNKNOWN
 
     val cardColor = when (issuer) {
@@ -546,7 +548,7 @@ fun CardVisualWidget(
                     )
                 } else {
                     Text(
-                        text = currentCard?.cardType ?: "NFC CARD",
+                        text = currentCard?.cardType ?: strings.defaultCardLabel,
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Black
@@ -568,8 +570,8 @@ fun CardVisualWidget(
                     modifier = Modifier.clickable(enabled = currentCard != null) {
                         currentCard?.cardNumber?.let { number ->
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("Nomor kartu", number))
-                            Toast.makeText(context, "Nomor kartu disalin", Toast.LENGTH_SHORT).show()
+                            clipboard.setPrimaryClip(ClipData.newPlainText(strings.cardNumberLabel, number))
+                            Toast.makeText(context, strings.cardNumberCopiedToast, Toast.LENGTH_SHORT).show()
                         }
                     }
                 )
@@ -591,13 +593,13 @@ fun CardVisualWidget(
                         ) {
                             Icon(
                                 imageVector = if (settings.maskCardNumber) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = "Toggle Sensor Nomor Kartu",
+                                contentDescription = strings.toggleMaskCardNumber,
                                 tint = Color.White.copy(alpha = 0.9f),
                                 modifier = Modifier.size(16.dp)
                             )
                         }
                         Text(
-                            text = currentCard?.cardType ?: "Siap Memindai Kartu",
+                            text = currentCard?.cardType ?: strings.readyToScan,
                             color = Color.White.copy(alpha = 0.9f),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
@@ -611,7 +613,7 @@ fun CardVisualWidget(
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                text = "TERBACA",
+                                text = strings.statusRead,
                                 color = Color.Black,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Black
@@ -821,7 +823,7 @@ data class TransactionGroup(
     val transactions: List<CardTransactionItem>
 )
 
-fun groupHistoryByDate(items: List<CardTransactionItem>): List<TransactionGroup> {
+fun groupHistoryByDate(items: List<CardTransactionItem>, isEnglish: Boolean = false): List<TransactionGroup> {
     val map = linkedMapOf<String, MutableList<CardTransactionItem>>()
     for (tx in items) {
         val list = map.getOrPut(tx.date) { mutableListOf() }
@@ -829,7 +831,8 @@ fun groupHistoryByDate(items: List<CardTransactionItem>): List<TransactionGroup>
     }
 
     val sdfIn = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-    val sdfOut = SimpleDateFormat("dd MMMM yyyy", Locale("id", "ID"))
+    val outLocale = if (isEnglish) Locale.US else Locale("id", "ID")
+    val sdfOut = SimpleDateFormat("dd MMMM yyyy", outLocale)
 
     return map.map { (dateStr, txs) ->
         val dispDate = try {
@@ -937,7 +940,7 @@ fun HistoryGroupWidget(
                     ) {
                         Column {
                             Text(
-                                text = "Lokasi",
+                                text = strings.locationHeader,
                                 color = textSubtleColor,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
@@ -958,7 +961,7 @@ fun HistoryGroupWidget(
                             ) {
                                 Icon(
                                     Icons.Default.Edit,
-                                    contentDescription = "Edit Lokasi",
+                                    contentDescription = strings.editLocationAction,
                                     tint = textSubtleColor,
                                     modifier = Modifier.size(15.dp)
                                 )
@@ -984,7 +987,8 @@ fun SavedCardItemWidget(
     onDelete: () -> Unit
 ) {
     val strings = LocalAppStrings.current
-    val sdf = SimpleDateFormat("dd MMM, HH:mm", Locale("id", "ID"))
+    val dateLocale = if (resolveIsEnglish(settings.appLanguage)) Locale.US else Locale("id", "ID")
+    val sdf = SimpleDateFormat("dd MMM, HH:mm", dateLocale)
     val dateStr = sdf.format(Date(card.timestamp))
 
     val activeCardBg = Color(0xFF1E293B)
@@ -1124,12 +1128,13 @@ fun shareReceipt(context: Context, card: CardBalanceResult?, isEnglish: Boolean 
 fun copyReceipt(context: Context, card: CardBalanceResult?, isEnglish: Boolean = false) {
     if (card == null) return
     val text = receiptText(card, isEnglish)
+    val strings = getAppStrings(if (isEnglish) "en" else "id", context)
 
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("Struk Saldo", text))
+    clipboard.setPrimaryClip(ClipData.newPlainText(strings.receiptShareTitle, text))
     Toast.makeText(
         context,
-        if (isEnglish) "Receipt copied to clipboard" else "Struk disalin ke clipboard",
+        strings.receiptCopiedToast,
         Toast.LENGTH_SHORT
     ).show()
 }
