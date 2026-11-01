@@ -1,7 +1,9 @@
 package id.tapmoney
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioManager
 import android.bluetooth.BluetoothAdapter
 import android.media.ToneGenerator
@@ -18,6 +20,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import id.tapmoney.data.CardDatabase
 import id.tapmoney.model.CardBalanceResult
@@ -142,14 +145,42 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         }
     }
 
+    private val nfcStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == NfcAdapter.ACTION_ADAPTER_STATE_CHANGED) {
+                val state = intent.getIntExtra(NfcAdapter.EXTRA_ADAPTER_STATE, NfcAdapter.STATE_OFF)
+                val strings = getAppStrings(settingsState.value.appLanguage, this@MainActivity)
+                when (state) {
+                    NfcAdapter.STATE_ON -> {
+                        nfcEnabledState.value = true
+                        statusMessageState.value = strings.statusSensorReady
+                        enableReaderMode()
+                    }
+                    NfcAdapter.STATE_OFF, NfcAdapter.STATE_TURNING_OFF -> {
+                        nfcEnabledState.value = false
+                        statusMessageState.value = strings.statusNfcDisabled
+                        disableReaderMode()
+                    }
+                }
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         checkNfcStatus()
         enableReaderMode()
+        try {
+            val filter = IntentFilter(NfcAdapter.ACTION_ADAPTER_STATE_CHANGED)
+            ContextCompat.registerReceiver(this, nfcStateReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        } catch (_: Exception) {}
     }
 
     override fun onPause() {
         super.onPause()
+        try {
+            unregisterReceiver(nfcStateReceiver)
+        } catch (_: Exception) {}
         disableReaderMode()
     }
 
