@@ -27,6 +27,7 @@ object NeoColors {
     val Green = Color(0xFF00E575)
     val Red = Color(0xFFFF3B30)
     val CyanDate = Color(0xFF0284C7)
+    val CyanDateDark = Color(0xFF38BDF8)
     val Border = Color(0xFF000000)
     val Shadow = Color(0xFF000000)
 

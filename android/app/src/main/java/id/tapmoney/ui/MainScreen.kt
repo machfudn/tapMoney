@@ -71,6 +71,7 @@ fun MainScreen(
     val textColor = if (isDark) NeoColors.DarkText else NeoColors.LightText
     val textSubtleColor = if (isDark) NeoColors.DarkTextSubtle else NeoColors.LightTextSubtle
     val borderColor = if (isDark) Color(0xFF3F3F46) else NeoColors.Border
+    val headerColor = if (isDark) NeoColors.CyanDateDark else NeoColors.CyanDate
 
     var activeTab by remember { mutableStateOf("chip") }
     var showSettingsScreen by remember { mutableStateOf(false) }
@@ -89,6 +90,7 @@ fun MainScreen(
                 onSettingsChanged = onSettingsChanged,
                 onClearAllData = onClearAllData,
                 onBack = { showSettingsScreen = false },
+                isDark = isDark,
                 surfaceColor = surfaceColor,
                 surfaceAltColor = surfaceAltColor,
                 borderColor = borderColor,
@@ -168,6 +170,7 @@ fun MainScreen(
                     BalanceWidget(
                         currentCard = currentCard,
                         settings = settings,
+                        isDark = isDark,
                         surfaceColor = surfaceColor,
                         borderColor = borderColor,
                         textColor = textColor,
@@ -206,6 +209,7 @@ fun MainScreen(
                                 label = strings.tabChipHistory,
                                 badgeCount = if (chipCount > 0) chipCount else null,
                                 active = activeTab == "chip",
+                                isDark = isDark,
                                 borderColor = borderColor,
                                 textColor = textColor,
                                 onClick = { activeTab = "chip" }
@@ -215,6 +219,7 @@ fun MainScreen(
                                 label = strings.tabSavedCards,
                                 badgeCount = if (savedCards.isNotEmpty()) savedCards.size else null,
                                 active = activeTab == "saved",
+                                isDark = isDark,
                                 borderColor = borderColor,
                                 textColor = textColor,
                                 onClick = { activeTab = "saved" }
@@ -249,6 +254,7 @@ fun MainScreen(
                                 borderColor = borderColor,
                                 textColor = textColor,
                                 textSubtleColor = textSubtleColor,
+                                headerColor = headerColor,
                                 showTransactionColors = settings.showTransactionColors,
                                 onEditLocation = { tid, curName ->
                                     editingTerminalId = tid
@@ -405,8 +411,13 @@ fun MainScreen(
         var tempName by remember { mutableStateOf(editingTerminalName) }
         AlertDialog(
             onDismissRequest = { editingTerminalId = null },
+            containerColor = surfaceColor,
+            titleContentColor = textColor,
+            textContentColor = textColor,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.border(2.dp, borderColor, RoundedCornerShape(12.dp)),
             title = {
-                Text(text = strings.editLocationTitle, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(text = strings.editLocationTitle, fontWeight = FontWeight.Black, fontSize = 16.sp, color = textColor)
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -416,6 +427,14 @@ fun MainScreen(
                         onValueChange = { tempName = it },
                         label = { Text(strings.locationInputLabel) },
                         singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = textColor,
+                            unfocusedTextColor = textColor,
+                            focusedBorderColor = headerColor,
+                            unfocusedBorderColor = borderColor,
+                            focusedLabelColor = headerColor,
+                            unfocusedLabelColor = textSubtleColor
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -428,14 +447,20 @@ fun MainScreen(
                         Toast.makeText(context, strings.locationSavedToast, Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = NeoColors.Yellow),
+                    shape = RoundedCornerShape(6.dp),
                     border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor)
                 ) {
                     Text(strings.save, color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { editingTerminalId = null }) {
-                    Text(strings.cancel, color = textSubtleColor)
+                Button(
+                    onClick = { editingTerminalId = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = surfaceAltColor),
+                    shape = RoundedCornerShape(6.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor)
+                ) {
+                    Text(strings.cancel, color = textColor, fontWeight = FontWeight.Bold)
                 }
             }
         )
@@ -603,6 +628,7 @@ fun CardVisualWidget(
 fun BalanceWidget(
     currentCard: CardBalanceResult?,
     settings: UserSettings,
+    isDark: Boolean,
     surfaceColor: Color,
     borderColor: Color,
     textColor: Color,
@@ -674,8 +700,8 @@ fun BalanceWidget(
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(Icons.Default.Share, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                    Text(strings.share, color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    Icon(Icons.Default.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Text(strings.share, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
                 }
             }
 
@@ -695,17 +721,48 @@ fun BalanceWidget(
                 }
             }
         }
+        val actionTextColor = if (isDark) Color.White else Color.Black
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
                 onClick = { currentCard?.let(onExportPdf) },
                 enabled = currentCard != null,
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = actionTextColor,
+                    disabledContentColor = textSubtleColor
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.5.dp,
+                    if (currentCard != null) borderColor else borderColor.copy(alpha = 0.4f)
+                ),
+                shape = RoundedCornerShape(6.dp),
                 modifier = Modifier.weight(1f)
-            ) { Text(strings.exportPdf, fontWeight = FontWeight.Black) }
+            ) {
+                Text(
+                    text = strings.exportPdf,
+                    color = if (currentCard != null) actionTextColor else textSubtleColor,
+                    fontWeight = FontWeight.Black
+                )
+            }
             OutlinedButton(
                 onClick = { currentCard?.let(onPrintReceipt) },
                 enabled = currentCard != null,
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = actionTextColor,
+                    disabledContentColor = textSubtleColor
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.5.dp,
+                    if (currentCard != null) borderColor else borderColor.copy(alpha = 0.4f)
+                ),
+                shape = RoundedCornerShape(6.dp),
                 modifier = Modifier.weight(1f)
-            ) { Text(strings.print, fontWeight = FontWeight.Black) }
+            ) {
+                Text(
+                    text = strings.print,
+                    color = if (currentCard != null) actionTextColor else textSubtleColor,
+                    fontWeight = FontWeight.Black
+                )
+            }
         }
     }
 }
@@ -715,6 +772,7 @@ fun TabPill(
     label: String,
     badgeCount: Int?,
     active: Boolean,
+    isDark: Boolean,
     borderColor: Color,
     textColor: Color,
     onClick: () -> Unit
@@ -738,9 +796,12 @@ fun TabPill(
             fontWeight = FontWeight.Black
         )
         if (badgeCount != null) {
+            val badgeBg = if (active) Color.Black else (if (isDark) Color(0xFF141416) else Color.Black)
+            val badgeBorder = if (active) Color.Black else (if (isDark) borderColor else Color.Black)
             Box(
                 modifier = Modifier
-                    .background(Color.Black, RoundedCornerShape(99.dp))
+                    .background(badgeBg, RoundedCornerShape(99.dp))
+                    .border(1.dp, badgeBorder, RoundedCornerShape(99.dp))
                     .padding(horizontal = 5.dp, vertical = 1.dp)
             ) {
                 Text(
@@ -789,6 +850,7 @@ fun HistoryGroupWidget(
     borderColor: Color,
     textColor: Color,
     textSubtleColor: Color,
+    headerColor: Color,
     showTransactionColors: Boolean,
     onEditLocation: (String, String) -> Unit
 ) {
@@ -797,10 +859,10 @@ fun HistoryGroupWidget(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // Date Header (Blue / Cyan)
+        // Date Header
         Text(
             text = group.displayDate,
-            color = NeoColors.CyanDate,
+            color = headerColor,
             fontSize = 15.sp,
             fontWeight = FontWeight.Black,
             modifier = Modifier.padding(start = 2.dp)
@@ -925,12 +987,21 @@ fun SavedCardItemWidget(
     val sdf = SimpleDateFormat("dd MMM, HH:mm", Locale("id", "ID"))
     val dateStr = sdf.format(Date(card.timestamp))
 
+    val activeCardBg = Color(0xFF1E293B)
+    val cardBg = if (active) activeCardBg else surfaceColor
+    val cardBorder = if (active) NeoColors.Blue else borderColor
+
+    val titleColor = if (active) Color.White else textColor
+    val cardNumColor = if (active) Color.White.copy(alpha = 0.85f) else textSubtleColor
+    val timeColor = if (active) Color.White.copy(alpha = 0.7f) else textSubtleColor
+    val balanceColor = if (active) Color.White else textColor
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .neoCard(
-                bgColor = if (active) NeoColors.Yellow.copy(alpha = 0.2f) else surfaceColor,
-                borderColor = if (active) NeoColors.Blue else borderColor,
+                bgColor = cardBg,
+                borderColor = cardBorder,
                 shadowOffset = 2.dp,
                 cornerRadius = 8.dp
             )
@@ -943,7 +1014,7 @@ fun SavedCardItemWidget(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     text = card.cardType,
-                    color = textColor,
+                    color = titleColor,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Black
                 )
@@ -951,7 +1022,7 @@ fun SavedCardItemWidget(
                     Box(
                         modifier = Modifier
                             .background(NeoColors.Green, RoundedCornerShape(3.dp))
-                            .border(1.dp, borderColor, RoundedCornerShape(3.dp))
+                            .border(1.dp, Color.Black, RoundedCornerShape(3.dp))
                             .padding(horizontal = 4.dp, vertical = 1.dp)
                     ) {
                         Text(strings.active, color = Color.Black, fontSize = 8.sp, fontWeight = FontWeight.Black)
@@ -960,14 +1031,14 @@ fun SavedCardItemWidget(
             }
             Text(
                 text = formatCardNumber(card.cardNumber, settings.maskCardNumber),
-                color = textSubtleColor,
+                color = cardNumColor,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 text = "${strings.tapTimePrefix}$dateStr",
-                color = textSubtleColor,
+                color = timeColor,
                 fontSize = 10.sp
             )
         }
@@ -975,7 +1046,7 @@ fun SavedCardItemWidget(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 text = if (settings.hideBalance) "Rp ••••••" else formatRupiah(card.balance),
-                color = textColor,
+                color = balanceColor,
                 fontSize = 14.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Black
@@ -985,7 +1056,12 @@ fun SavedCardItemWidget(
                 onClick = onDelete,
                 modifier = Modifier.size(28.dp)
             ) {
-                Icon(Icons.Default.Delete, contentDescription = strings.delete, tint = NeoColors.Red, modifier = Modifier.size(16.dp))
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = strings.delete,
+                    tint = if (active) Color(0xFFFCA5A5) else NeoColors.Red,
+                    modifier = Modifier.size(16.dp)
+                )
             }
         }
     }
