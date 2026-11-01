@@ -129,5 +129,8 @@
   "updateButton": "Perbarui",
   "currentVersionLabel": "Versi Saat Ini",
   "latestVersionLabel": "Versi Terbaru",
-  "fileSizeLabel": "Ukuran File"
+  "fileSizeLabel": "Ukuran File",
+  "fileInfoTitle": "Informasi Berkas",
+  "checksumLabel": "Checksum (SHA-256)",
+  "checksumCopiedToast": "Checksum disalin ke papan klip"
 }

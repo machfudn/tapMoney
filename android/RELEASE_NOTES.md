@@ -12,5 +12,10 @@
   * Pengetatan resolusi nama lokasi (`TerminalCatalog` & `KmtStationCatalog`): kode perangkat mentah/undecoded otomatis dimasking menjadi label standar "Tidak dikenali" (ID) / "Unknown" (EN).
 * **Penyempurnaan Visual & Kontras Tombol**:
   * Warna teks, ikon putar, dan indikator loading pada tombol "Periksa Pembaruan" di tab Pengaturan diselaraskan menjadi putih (`#FFFFFF`) untuk keterbacaan optimal.
+* **Informasi Berkas & Checksum SHA-256**:
+  * Penambahan kartu Informasi Berkas pada dialog pembaruan yang menampilkan nama berkas APK, ukuran berkas, dan nilai checksum SHA-256 dengan tombol sekali sentuh untuk menyalin ke papan klip.
+  * Workflow CI/CD otomatis menghitung `sha256sum` APK rilis dan mengunggah berkas `TapMoney-v*.apk.sha256`.
+* **Renderer Markdown Ringkasan Rilis**:
+  * Kotak ringkasan rilis kini mendukung parsing dan perenderan format Markdown (`.md`) secara penuh (judul `###`, daftar poin berulang `*` / `-`, teks tebal `**`, dan kode inline `` ` ``).
 * **Sinkronisasi Dwibahasa Penuh (ID & EN)**:
-  * Memastikan seluruh 131 key kamus bahasa pada `id.json` dan `en.json` tersinkronisasi 100% untuk semua komponen antarmuka, dialog, dan ekspor struk.
+  * Memastikan seluruh 134 key kamus bahasa pada `id.json` dan `en.json` tersinkronisasi 100% untuk semua komponen antarmuka, dialog, dan ekspor struk.

@@ -149,6 +149,9 @@ interface AppStrings {
     val currentVersionLabel: String
     val latestVersionLabel: String
     val fileSizeLabel: String
+    val fileInfoTitle: String
+    val checksumLabel: String
+    val checksumCopiedToast: String
 }
 
 object AppStringsId : AppStrings {
@@ -296,6 +299,9 @@ object AppStringsId : AppStrings {
     override val currentVersionLabel = "Versi Saat Ini"
     override val latestVersionLabel = "Versi Terbaru"
     override val fileSizeLabel = "Ukuran File"
+    override val fileInfoTitle = "Informasi Berkas"
+    override val checksumLabel = "Checksum (SHA-256)"
+    override val checksumCopiedToast = "Checksum disalin ke papan klip"
 }
 
 object AppStringsEn : AppStrings {
@@ -443,6 +449,9 @@ object AppStringsEn : AppStrings {
     override val currentVersionLabel = "Current Version"
     override val latestVersionLabel = "Latest Version"
     override val fileSizeLabel = "File Size"
+    override val fileInfoTitle = "File Information"
+    override val checksumLabel = "Checksum (SHA-256)"
+    override val checksumCopiedToast = "Checksum copied to clipboard"
 }
 
 class JsonBackedAppStrings(
@@ -595,6 +604,9 @@ class JsonBackedAppStrings(
     override val currentVersionLabel get() = get("currentVersionLabel", fallback.currentVersionLabel)
     override val latestVersionLabel get() = get("latestVersionLabel", fallback.latestVersionLabel)
     override val fileSizeLabel get() = get("fileSizeLabel", fallback.fileSizeLabel)
+    override val fileInfoTitle get() = get("fileInfoTitle", fallback.fileInfoTitle)
+    override val checksumLabel get() = get("checksumLabel", fallback.checksumLabel)
+    override val checksumCopiedToast get() = get("checksumCopiedToast", fallback.checksumCopiedToast)
 }
 
 object JsonI18nLoader {

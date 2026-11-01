@@ -1,5 +1,8 @@
 package id.tapmoney.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -630,6 +633,72 @@ fun SettingsScreen(
                             }
                         }
 
+                        // Informasi Berkas (File Name, Size, Checksum)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(surfaceAltColor)
+                                .border(1.dp, borderColor, RoundedCornerShape(6.dp))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = strings.fileInfoTitle,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = headerColor
+                            )
+                            if (!info.apkName.isNullOrBlank()) {
+                                Text(
+                                    text = info.apkName,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = textColor,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            if (!info.checksum.isNullOrBlank()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                            clipboard?.setPrimaryClip(ClipData.newPlainText("SHA-256 Checksum", info.checksum))
+                                            Toast.makeText(context, strings.checksumCopiedToast, Toast.LENGTH_SHORT).show()
+                                        }
+                                        .padding(vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = strings.checksumLabel,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = textSubtleColor
+                                        )
+                                        Text(
+                                            text = info.checksum,
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            color = textColor,
+                                            lineHeight = 12.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "Copy Checksum",
+                                        tint = textSubtleColor,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+
                         if (info.releaseNotes.isNotBlank()) {
                             Text(
                                 text = strings.changelogHeader,
@@ -640,19 +709,19 @@ fun SettingsScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 160.dp)
+                                    .heightIn(max = 180.dp)
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(surfaceAltColor)
                                     .border(1.dp, borderColor.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
                                     .verticalScroll(rememberScrollState())
                                     .padding(8.dp)
                             ) {
-                                Text(
-                                    text = info.releaseNotes,
-                                    fontSize = 11.sp,
-                                    color = textSubtleColor,
-                                    lineHeight = 15.sp,
-                                    fontFamily = FontFamily.Monospace
+                                MarkdownContent(
+                                    markdown = info.releaseNotes,
+                                    textColor = textColor,
+                                    textSubtleColor = textSubtleColor,
+                                    headerColor = headerColor,
+                                    surfaceColor = surfaceColor
                                 )
                             }
                         }

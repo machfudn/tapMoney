@@ -16,6 +16,7 @@ data class AppReleaseInfo(
     val downloadUrl: String?,
     val apkName: String?,
     val apkSize: Long?,
+    val checksum: String? = null,
     val isNewer: Boolean
 )
 
@@ -66,6 +67,10 @@ object AppUpdateChecker {
         val cleanVersion = tagName.removePrefix("v").removePrefix("V")
         val isNewer = isVersionNewer(tagName, currentVersion)
 
+        val shaRegex = Regex("""(?i)(?:sha-?256|checksum)\s*[:=]\s*([a-fA-F0-9]{64})""")
+        val checksum = shaRegex.find(body)?.groupValues?.getOrNull(1)
+            ?: Regex("""\b([a-fA-F0-9]{64})\b""").find(body)?.groupValues?.getOrNull(1)
+
         val asset = extractApkAsset(json)
 
         return AppReleaseInfo(
@@ -77,6 +82,7 @@ object AppUpdateChecker {
             downloadUrl = asset.first,
             apkName = asset.second,
             apkSize = asset.third,
+            checksum = checksum,
             isNewer = isNewer
         )
     }

@@ -129,5 +129,8 @@
   "updateButton": "Update",
   "currentVersionLabel": "Current Version",
   "latestVersionLabel": "Latest Version",
-  "fileSizeLabel": "File Size"
+  "fileSizeLabel": "File Size",
+  "fileInfoTitle": "File Information",
+  "checksumLabel": "Checksum (SHA-256)",
+  "checksumCopiedToast": "Checksum copied to clipboard"
 }
