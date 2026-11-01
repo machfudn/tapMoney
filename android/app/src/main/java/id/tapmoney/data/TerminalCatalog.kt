@@ -73,24 +73,12 @@ object TerminalCatalog {
         val trimmed = text.trim()
         if (trimmed.length < 2) return false
 
-        // Filter out unmapped station tokens like "Station 0x1234"
-        if (trimmed.startsWith("Station 0x", ignoreCase = true)) return false
-
-        // Filter out handheld terminal hardware prefixes like "HT0", "HT01"
-        if (trimmed.startsWith("HT0", ignoreCase = true)) return false
-
-        // Filter out raw hexadecimal strings (e.g. "01A4F29B", "20202020")
-        val isAllHex = trimmed.length >= 4 && trimmed.all {
-            it in '0'..'9' || it in 'A'..'F' || it in 'a'..'f'
+        if (trimmed.equals("Tidak dikenali", ignoreCase = true) || trimmed.equals("Unknown", ignoreCase = true)) {
+            return false
         }
-        if (isAllHex) return false
 
-        // Must contain at least one letter and only printable safe characters
-        val hasLetter = trimmed.any { it.isLetter() }
-        val allReadable = trimmed.all {
-            it.isLetterOrDigit() || it == ' ' || it == '-' || it == '/' || it == '.' || it == '_' || it == '(' || it == ')'
-        }
-        return hasLetter && allReadable
+        // Only accept explicitly recognized transit station names
+        return id.tapmoney.nfc.parser.transit.KmtStationCatalog.isKnownStation(trimmed)
     }
 
     /**

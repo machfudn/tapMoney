@@ -87,6 +87,7 @@ fun MainScreen(
     var editingTerminalId by remember { mutableStateOf<String?>(null) }
     var editingTerminalName by remember { mutableStateOf("") }
     var loadingTerminalIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showAllHistory by remember(currentCard?.cardId, currentCard?.cardNumber) { mutableStateOf(false) }
     var isInitialLocLoading by remember(currentCard?.cardId, currentCard?.cardNumber) {
         mutableStateOf(currentCard != null && currentCard.history.isNotEmpty())
     }
@@ -265,8 +266,9 @@ fun MainScreen(
                 if (activeTab == "chip") {
                     val history = currentCard?.let { ReceiptFormatter.resolveEndingBalances(it) } ?: emptyList()
                     if (history.isNotEmpty()) {
+                        val displayHistory = if (showAllHistory) history else history.take(3)
                         val isEn = resolveIsEnglish(settings.appLanguage)
-                        val grouped = groupHistoryByDate(history, isEn)
+                        val grouped = groupHistoryByDate(displayHistory, isEn)
                         items(grouped) { group ->
                             HistoryGroupWidget(
                                 group = group,
@@ -285,6 +287,38 @@ fun MainScreen(
                                     editingTerminalName = curName
                                 }
                             )
+                        }
+
+                        if (history.size > 3) {
+                            item {
+                                Button(
+                                    onClick = { showAllHistory = !showAllHistory },
+                                    colors = ButtonDefaults.buttonColors(containerColor = surfaceColor),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .neoCard(bgColor = surfaceColor, borderColor = borderColor, shadowOffset = 2.dp, cornerRadius = 8.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(vertical = 10.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = if (showAllHistory) strings.showLess else strings.viewAll,
+                                            color = textColor,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                        Icon(
+                                            imageVector = if (showAllHistory) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                            contentDescription = null,
+                                            tint = textColor,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     } else {
                         item {

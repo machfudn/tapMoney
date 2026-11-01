@@ -83,4 +83,10 @@ object KmtStationCatalog {
     fun getStationName(code: Int): String {
         return STATIONS[code] ?: "Tidak dikenali"
     }
+
+    fun isKnownStation(name: String?): Boolean {
+        if (name.isNullOrBlank()) return false
+        val trimmed = name.trim()
+        return STATIONS.values.any { it.equals(trimmed, ignoreCase = true) }
+    }
 }

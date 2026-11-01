@@ -480,12 +480,12 @@ fun SettingsScreen(
                                     if (isCheckingUpdate) {
                                         CircularProgressIndicator(
                                             modifier = Modifier.size(16.dp),
-                                            color = Color.Black,
+                                            color = Color.White,
                                             strokeWidth = 2.dp
                                         )
                                         Text(
                                             text = strings.checkingUpdate,
-                                            color = Color.Black,
+                                            color = Color.White,
                                             fontWeight = FontWeight.Black,
                                             fontSize = 13.sp
                                         )
@@ -493,12 +493,12 @@ fun SettingsScreen(
                                         Icon(
                                             imageVector = Icons.Default.Refresh,
                                             contentDescription = null,
-                                            tint = Color.Black,
+                                            tint = Color.White,
                                             modifier = Modifier.size(18.dp)
                                         )
                                         Text(
                                             text = strings.checkUpdateButton,
-                                            color = Color.Black,
+                                            color = Color.White,
                                             fontWeight = FontWeight.Black,
                                             fontSize = 13.sp
                                         )
@@ -860,7 +860,7 @@ fun SettingsScreen(
                         shape = RoundedCornerShape(6.dp),
                         border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor)
                     ) {
-                        Text(strings.checkUpdateButton, color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text(strings.checkUpdateButton, color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {

@@ -175,7 +175,7 @@ object AppStringsId : AppStrings {
     override val active = "AKTIF"
     override val delete = "Hapus"
     override val viewAll = "Lihat Semua"
-    override val showLess = "Lebih Sedikit"
+    override val showLess = "Lihat Lebih Sedikit"
     override val topUp = "Top Up"
     override val payment = "Pembayaran"
     override val endingBalance = "Saldo Akhir: "
