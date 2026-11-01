@@ -156,7 +156,7 @@ class FlazzParser : EmoneyParser {
             }
         }
 
-        val history = readHistory(channel, log)
+        val history = readHistory(channel, log, balance)
 
         return CardBalanceResult(
             cardType = cardTypeName,
@@ -170,56 +170,82 @@ class FlazzParser : EmoneyParser {
         )
     }
 
-    private fun readHistory(channel: ApduChannel, log: StringBuilder): List<CardTransactionItem> {
+    private fun readHistory(channel: ApduChannel, log: StringBuilder, currentBalance: Long? = null): List<CardTransactionItem> {
         val history = mutableListOf<CardTransactionItem>()
 
-        // 1. Kue-reader Flh4 & Flh5 file reading
+        // 1. SFI 4 (0x84) & SFI 5 (0x85) Binary Log Reading
         try {
             val cmdCccc = byteArrayOf(0x00, 0x00, 0x40, 0x0B, 0x00, 0x00, 0x04, 0x02, 0x00, 0x00)
             channel.transceive(cmdCccc)
 
-            val cmdFlh4 = byteArrayOf(0x00, 0xB0.toByte(), 0x84.toByte(), 0x00, 0x3C)
-            val cmdFlh5 = byteArrayOf(0x00, 0xB0.toByte(), 0x85.toByte(), 0x00, 0x3C)
-            val rawLogs = mutableListOf<ByteArray>()
+            val sfis = listOf(0x84, 0x85)
+            for (sfi in sfis) {
+                val records = mutableListOf<ByteArray>()
 
-            for (i in 0 until 16) {
-                cmdFlh4[3] = (i * 15).toByte()
-                val resp = channel.transceive(cmdFlh4)
-                if (resp.isSuccess() && resp.size >= 62) {
-                    rawLogs.add(resp.sliceArray(0 until resp.size - 2))
-                } else break
-            }
+                // Primary: Read 60-byte records directly with correct record offset (rec * 60)
+                var directSuccess = false
+                val cmd60 = byteArrayOf(0x00, 0xB0.toByte(), sfi.toByte(), 0x00, 0x3C)
+                for (rec in 0 until 16) {
+                    val offset = rec * 60
+                    if (offset > 240) break
+                    cmd60[3] = offset.toByte()
+                    val resp = channel.transceive(cmd60)
+                    if (resp.isSuccess() && resp.size >= 62) {
+                        directSuccess = true
+                        records.add(resp.sliceArray(0 until 60))
+                    } else {
+                        break
+                    }
+                }
 
-            for (i in 0 until 16) {
-                cmdFlh5[3] = (i * 15).toByte()
-                val resp = channel.transceive(cmdFlh5)
-                if (resp.isSuccess() && resp.size >= 62) {
-                    rawLogs.add(resp.sliceArray(0 until resp.size - 2))
-                } else break
-            }
+                // Fallback: If 60-byte reading rejected by card, read in 15-byte slices and reassemble
+                if (!directSuccess) {
+                    val sfiBuffer = mutableListOf<Byte>()
+                    val cmd15 = byteArrayOf(0x00, 0xB0.toByte(), sfi.toByte(), 0x00, 0x0F)
+                    for (chunk in 0 until 16) {
+                        cmd15[3] = (chunk * 15).toByte()
+                        val resp = channel.transceive(cmd15)
+                        if (resp.isSuccess() && resp.size >= 17) {
+                            sfiBuffer.addAll(resp.sliceArray(0 until 15).toList())
+                        } else {
+                            break
+                        }
+                    }
+                    val chunked = sfiBuffer.chunked(60).filter { it.size == 60 }
+                    for (c in chunked) {
+                        records.add(c.toByteArray())
+                    }
+                }
 
-            for (record in rawLogs) {
-                if (record.size >= 60) {
-                    val typeInt = ((record[0].toInt() and 0xFF) shl 8) or (record[1].toInt() and 0xFF)
-                    val isPayment = typeInt == 1024
-                    val amountBytes = byteArrayOf(0x00, record[6], record[7], record[8])
-                    val amount = ByteBuffer.wrap(amountBytes).int.toLong() and 0xFFFFFFFFL
+                for (record in records) {
+                    if (record.size >= 60) {
+                        val isPayment = (record[0].toInt() and 0xFF) == 0x04 ||
+                                (((record[0].toInt() and 0xFF) shl 8) or (record[1].toInt() and 0xFF)) == 1024
 
-                    val timeBytes = byteArrayOf(record[38], record[39], record[40], record[41])
-                    val timeSecs = ByteBuffer.wrap(timeBytes).int.toLong() and 0xFFFFFFFFL
-                    val dateObj = TxDates.parseFlazzSeconds(timeSecs) ?: Date(timeSecs * 1000L)
+                        val amountBytes = byteArrayOf(0x00, record[6], record[7], record[8])
+                        val amount = ByteBuffer.wrap(amountBytes).int.toLong() and 0xFFFFFFFFL
 
-                    val locBytes = record.sliceArray(30..37)
-                    val terminalIdHex = locBytes.toHexString()
-                    val locationAscii = String(locBytes, Charsets.US_ASCII).replace("\u0000", "").trim()
-                    val terminalName = if (locationAscii.length >= 2) locationAscii else terminalIdHex
+                        // Ending balance decoding from bytes 1..4 (big endian)
+                        val balRaw = ByteBuffer.wrap(record.sliceArray(1..4)).int.toLong() and 0xFFFFFFFFL
+                        val endingBalance = if (isPayment) balRaw else (balRaw + amount)
+                        val validBalance = if (endingBalance in 0L..100_000_000L) endingBalance else null
 
-                    if (amount > 0) {
+                        val timeBytes = byteArrayOf(record[38], record[39], record[40], record[41])
+                        val timeSecs = ByteBuffer.wrap(timeBytes).int.toLong() and 0xFFFFFFFFL
+                        if (timeSecs <= 0L || amount <= 0L) continue
+
+                        val dateObj = TxDates.parseFlazzSeconds(timeSecs) ?: Date(timeSecs * 1000L)
+
+                        val locBytes = record.sliceArray(30..37)
+                        val terminalIdHex = locBytes.toHexString()
+                        val locationAscii = String(locBytes, Charsets.US_ASCII).replace("\u0000", "").trim()
+                        val terminalName = if (locationAscii.length >= 2) locationAscii else terminalIdHex
+
                         history.add(
                             CardTransactionItem(
                                 type = if (isPayment) "Payment" else "Top up",
                                 amount = amount,
-                                balance = null,
+                                balance = validBalance,
                                 date = TxDates.formatDate(dateObj),
                                 time = TxDates.formatTime(dateObj),
                                 terminalId = terminalName
@@ -232,93 +258,116 @@ class FlazzParser : EmoneyParser {
             log.append("Flazz file log err: ${e.message}\n")
         }
 
-        if (history.isNotEmpty()) {
-            return history
-                .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.type}" }
-                .sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
-        }
-
         // 2. DESFire Gen 2 fallback
-        for (rec in 1..10) {
-            val apduRec = String.format("90BD000007%02X00000020000000", rec).hexToBytes()
+        for (rec in 0..15) {
+            val cmd32 = byteArrayOf(0x90.toByte(), 0x32, 0x03, 0x00, 0x01, rec.toByte(), 0x20)
             try {
-                val resp = channel.transceive(apduRec)
-                if (resp.size < 2) break
-                val sw1 = resp[resp.size - 2].toInt() and 0xFF
-                if (sw1 != 0x90 && sw1 != 0x91) break
+                var resp = channel.transceive(cmd32)
+                if (resp.size < 34 || !resp.isSuccess()) {
+                    val cmdBd = String.format("90BD000007%02X00000020000000", rec).hexToBytes()
+                    resp = channel.transceive(cmdBd)
+                }
+                if (resp.size < 34 || !resp.isSuccess()) break
 
                 val hex = resp.toHexString()
-                if (hex.length >= 64) {
-                    val typeHex = hex.substring(0, 2)
-                    val isTopUp = typeHex == "01" || typeHex == "02"
-                    val secHex = hex.substring(8, 16)
-                    val sec = secHex.toLongOrNull(16) ?: 0L
-                    val dateObj = TxDates.parseFlazzSeconds(sec) ?: Date(sec * 1000L)
+                val typeHex = hex.substring(0, 2)
+                val isPayment = typeHex == "04"
+                val secHex = hex.substring(8, 16)
+                val sec = secHex.toLongOrNull(16) ?: 0L
+                val dateObj = if (sec > 0) TxDates.parseFlazzSeconds(sec) else null
 
-                    val amtHex = hex.substring(24, 32)
-                    val amount = amtHex.toLongOrNull(16) ?: 0L
-                    val balHex = if (hex.length >= 50) hex.substring(44, 50) else "0"
-                    val restBal = balHex.toLongOrNull(16)
-                    val tid = if (hex.length >= 24) hex.substring(16, 24) else null
+                val amtRaw = hex.substring(2, 8).toLongOrNull(16) ?: 0L
+                val amount = if (isPayment && amtRaw > 0) (16777216L - amtRaw) else amtRaw
 
-                    if (amount > 0 || (restBal != null && restBal > 0)) {
-                        history.add(
-                            CardTransactionItem(
-                                type = if (isTopUp) "Top up" else "Payment",
-                                amount = amount,
-                                balance = restBal,
-                                date = TxDates.formatDate(dateObj),
-                                time = TxDates.formatTime(dateObj),
-                                terminalId = tid
-                            )
+                val balHex = if (hex.length >= 50) hex.substring(44, 50) else "0"
+                val balRaw = balHex.toLongOrNull(16) ?: 0L
+                val endBal = if (isPayment) Math.abs(balRaw - amount) else (balRaw + amount)
+                val validBal = if (endBal in 0L..100_000_000L) endBal else null
+
+                val tidHex = if (hex.length >= 44) hex.substring(28, 44) else null
+                val tidAscii = tidHex?.chunked(2)?.mapNotNull {
+                    val code = it.toIntOrNull(16) ?: return@mapNotNull null
+                    if (code in 32..126) code.toChar() else null
+                }?.joinToString("")?.trim()
+
+                if (dateObj != null && amount in 1..100_000_000L) {
+                    history.add(
+                        CardTransactionItem(
+                            type = if (isPayment) "Payment" else "Top up",
+                            amount = amount,
+                            balance = validBal,
+                            date = TxDates.formatDate(dateObj),
+                            time = TxDates.formatTime(dateObj),
+                            terminalId = if (!tidAscii.isNullOrBlank()) tidAscii else tidHex
                         )
-                    }
+                    )
                 }
             } catch (_: Exception) {
                 break
             }
-        }
-
-        if (history.isNotEmpty()) {
-            return history
-                .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.type}" }
-                .sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
         }
 
         // 3. Gen 1 history fallback
-        for (rec in 1..10) {
-            val fallbackRec = String.format("00B2%02X0C00", rec).hexToBytes()
-            try {
-                val resp = channel.transceive(fallbackRec)
-                if (!resp.isSuccess()) break
-                val hex = resp.toHexString()
-                if (hex.length >= 32) {
-                    val amtHex = hex.substring(12, 18)
-                    val amount = amtHex.toLongOrNull(16) ?: 0L
-                    val dateObj = TxDates.parseBcdDateTime(hex.substring(0, 6), hex.substring(6, 12))
-                        ?: TxDates.parseHexDateTime(hex.substring(0, 6), hex.substring(6, 12))
-                        ?: Date()
-                    if (amount > 0) {
-                        history.add(
-                            CardTransactionItem(
-                                type = "Payment",
-                                amount = amount,
-                                balance = null,
-                                date = TxDates.formatDate(dateObj),
-                                time = TxDates.formatTime(dateObj),
-                                terminalId = null
+        if (history.isEmpty()) {
+            for (rec in 1..10) {
+                val fallbackRec = String.format("00B2%02X0C00", rec).hexToBytes()
+                try {
+                    val resp = channel.transceive(fallbackRec)
+                    if (!resp.isSuccess()) break
+                    val hex = resp.toHexString()
+                    if (hex.length >= 32) {
+                        val amtHex = hex.substring(12, 18)
+                        val amount = amtHex.toLongOrNull(16) ?: 0L
+                        val dateObj = TxDates.parseBcdDateTime(hex.substring(0, 6), hex.substring(6, 12))
+                            ?: TxDates.parseHexDateTime(hex.substring(0, 6), hex.substring(6, 12))
+                            ?: Date()
+                        if (amount > 0) {
+                            history.add(
+                                CardTransactionItem(
+                                    type = "Payment",
+                                    amount = amount,
+                                    balance = null,
+                                    date = TxDates.formatDate(dateObj),
+                                    time = TxDates.formatTime(dateObj),
+                                    terminalId = null
+                                )
                             )
-                        )
+                        }
                     }
+                } catch (_: Exception) {
+                    break
                 }
-            } catch (_: Exception) {
-                break
             }
         }
 
-        return history
+        val sorted = history
             .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.type}" }
             .sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
+            .toMutableList()
+
+        // Continuous ledger balance consistency: propagate backwards if any balance is missing
+        if (sorted.isNotEmpty()) {
+            if (sorted[0].balance == null && currentBalance != null && currentBalance > 0L) {
+                sorted[0] = sorted[0].copy(balance = currentBalance)
+            }
+            for (i in 1 until sorted.size) {
+                if (sorted[i].balance == null) {
+                    val prev = sorted[i - 1]
+                    if (prev.balance != null) {
+                        val computed = if (prev.type.equals("Payment", ignoreCase = true) || prev.type.equals("Pembayaran", ignoreCase = true)) {
+                            prev.balance!! + prev.amount
+                        } else {
+                            prev.balance!! - prev.amount
+                        }
+                        if (computed in 0L..100_000_000L) {
+                            sorted[i] = sorted[i].copy(balance = computed)
+                        }
+                    }
+                }
+            }
+        }
+
+        return sorted
     }
 
     /**

@@ -126,6 +126,76 @@ class CardParserTest {
         assertFalse(data.balanceKnown)
     }
 
+    @Test
+    fun `flazz gen 2 decodes transaction history with ending balance from 60-byte SFI records`() {
+        // Record 1 (Payment 10,000, remaining balance 40,000)
+        // Record 2 (Top Up 50,000, previous 0, ending balance 50,000)
+        val r1 = "0400009C4000002710000000000000000000000000000000000000000000544F4C5F4A4B54005818ADF00000000000000000000000000000000000009000"
+        val r2 = "01000000000000C35000000000000000000000000000000000000000000041544D5F42434100581890000000000000000000000000000000000000009000"
+
+        val card = FakeCard(
+            "00A40400" to "9000",
+            "00A40100" to "9000",
+            "00B08100" to "0000000060190012345678909000",
+            "80320003" to "00009C409000", // current balance 40,000
+            "0000400B" to "9000",
+            "00B084003C" to r1, // offset 0 (rec 0)
+            "00B0843C3C" to r2, // offset 60 (rec 1)
+            "00B084783C" to "6B00", // EOF
+            "00B085" to "6A82"
+        )
+        val data = FlazzParser().parseChannel(card, "AABBCCDD", StringBuilder())
+        assertNotNull(data)
+        assertEquals(40_000L, data!!.balance)
+        assertEquals(2, data.history.size)
+
+        // Strictly descending order: r1 (later timestamp 5818ADF0) is first
+        val tx1 = data.history[0]
+        assertEquals("Payment", tx1.type)
+        assertEquals(10_000L, tx1.amount)
+        assertEquals(40_000L, tx1.balance)
+        assertEquals("TOL_JKT", tx1.terminalId)
+
+        val tx2 = data.history[1]
+        assertEquals("Top up", tx2.type)
+        assertEquals(50_000L, tx2.amount)
+        assertEquals(50_000L, tx2.balance)
+        assertEquals("ATM_BCA", tx2.terminalId)
+    }
+
+    @Test
+    fun `flazz gen 2 decodes 15-byte assembled chunks when 60-byte read is rejected`() {
+        // Chunk 0..3 for record 1 (Payment 5,000, balance 25,000)
+        // 60-byte payload split into 4 x 15 bytes
+        val p1 = "04000061A800001388000000000000" // bytes 0..14
+        val p2 = "000000000000000000000000000000" // bytes 15..29
+        val p3 = "544F4C5F424752005818C000000000" // bytes 30..44 (TOL_BGR, time)
+        val p4 = "000000000000000000000000000000" // bytes 45..59
+
+        val card = FakeCard(
+            "00A40400" to "9000",
+            "00A40100" to "9000",
+            "00B08100" to "0000000060190012345678909000",
+            "80320003" to "000061A89000", // current balance 25,000
+            "0000400B" to "9000",
+            "00B084003C" to "6700", // reject 60-byte read!
+            "00B084000F" to p1 + "9000",
+            "00B0840F0F" to p2 + "9000",
+            "00B0841E0F" to p3 + "9000",
+            "00B0842D0F" to p4 + "9000",
+            "00B0843C0F" to "6B00", // EOF after 1 record
+            "00B085" to "6A82"
+        )
+        val data = FlazzParser().parseChannel(card, "AABBCCDD", StringBuilder())
+        assertNotNull(data)
+        assertEquals(1, data!!.history.size)
+        val tx = data.history[0]
+        assertEquals("Payment", tx.type)
+        assertEquals(5_000L, tx.amount)
+        assertEquals(25_000L, tx.balance)
+        assertEquals("TOL_BGR", tx.terminalId)
+    }
+
     // --- BRI BRIZZI ---
 
     @Test
