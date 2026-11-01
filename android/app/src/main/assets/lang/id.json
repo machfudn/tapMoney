@@ -112,5 +112,22 @@
   "statusSensorReady": "Sensor siap • Tempelkan kartu di belakang ponsel",
   "statusReadingCard": "Membaca kartu uang elektronik...",
   "statusReadFailed": "Gagal membaca kartu atau kartu terlepas terlalu cepat",
-  "statusReadSuccessPrefix": "Berhasil membaca: "
+  "statusReadSuccessPrefix": "Berhasil membaca: ",
+  "secAppUpdate": "Pembaruan Aplikasi",
+  "appUpdateSubtitle": "Periksa rilis terbaru Tap Money langsung dari repositori resmi GitHub.",
+  "checkUpdateButton": "Periksa Pembaruan",
+  "checkingUpdate": "Memeriksa pembaruan...",
+  "updateAvailableTitle": "Pembaruan Tersedia",
+  "updateUpToDateTitle": "Versi Terbaru",
+  "updateUpToDateMessage": "Aplikasi sudah menggunakan versi terbaru (%s).",
+  "updateErrorTitle": "Gagal Memeriksa Pembaruan",
+  "downloadApkButton": "Unduh APK",
+  "openInBrowserButton": "Buka di Browser",
+  "downloadStartedToast": "Memulai pengunduhan APK...",
+  "downloadFailedToast": "Gagal memulai pengunduhan APK",
+  "changelogHeader": "Ringkasan Rilis",
+  "updateButton": "Perbarui",
+  "currentVersionLabel": "Versi Saat Ini",
+  "latestVersionLabel": "Versi Terbaru",
+  "fileSizeLabel": "Ukuran File"
 }

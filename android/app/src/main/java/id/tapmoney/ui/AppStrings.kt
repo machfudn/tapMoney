@@ -131,6 +131,24 @@ interface AppStrings {
     val statusReadingCard: String
     val statusReadFailed: String
     val statusReadSuccessPrefix: String
+
+    val secAppUpdate: String
+    val appUpdateSubtitle: String
+    val checkUpdateButton: String
+    val checkingUpdate: String
+    val updateAvailableTitle: String
+    val updateUpToDateTitle: String
+    val updateUpToDateMessage: String
+    val updateErrorTitle: String
+    val downloadApkButton: String
+    val updateButton: String
+    val openInBrowserButton: String
+    val downloadStartedToast: String
+    val downloadFailedToast: String
+    val changelogHeader: String
+    val currentVersionLabel: String
+    val latestVersionLabel: String
+    val fileSizeLabel: String
 }
 
 object AppStringsId : AppStrings {
@@ -260,6 +278,24 @@ object AppStringsId : AppStrings {
     override val statusReadingCard = "Membaca kartu uang elektronik..."
     override val statusReadFailed = "Gagal membaca kartu atau kartu terlepas terlalu cepat"
     override val statusReadSuccessPrefix = "Berhasil membaca: "
+
+    override val secAppUpdate = "Pembaruan Aplikasi"
+    override val appUpdateSubtitle = "Periksa rilis terbaru Tap Money langsung dari repositori resmi GitHub."
+    override val checkUpdateButton = "Periksa Pembaruan"
+    override val checkingUpdate = "Memeriksa pembaruan..."
+    override val updateAvailableTitle = "Pembaruan Tersedia"
+    override val updateUpToDateTitle = "Versi Terbaru"
+    override val updateUpToDateMessage = "Aplikasi sudah menggunakan versi terbaru (%s)."
+    override val updateErrorTitle = "Gagal Memeriksa Pembaruan"
+    override val downloadApkButton = "Unduh APK"
+    override val updateButton = "Perbarui"
+    override val openInBrowserButton = "Buka di Browser"
+    override val downloadStartedToast = "Memulai pengunduhan APK..."
+    override val downloadFailedToast = "Gagal memulai pengunduhan APK"
+    override val changelogHeader = "Ringkasan Rilis"
+    override val currentVersionLabel = "Versi Saat Ini"
+    override val latestVersionLabel = "Versi Terbaru"
+    override val fileSizeLabel = "Ukuran File"
 }
 
 object AppStringsEn : AppStrings {
@@ -389,6 +425,24 @@ object AppStringsEn : AppStrings {
     override val statusReadingCard = "Reading electronic money card..."
     override val statusReadFailed = "Failed to read card or card removed too quickly"
     override val statusReadSuccessPrefix = "Successfully read: "
+
+    override val secAppUpdate = "App Updates"
+    override val appUpdateSubtitle = "Check for the latest Tap Money release directly from the official GitHub repository."
+    override val checkUpdateButton = "Check for Updates"
+    override val checkingUpdate = "Checking for updates..."
+    override val updateAvailableTitle = "Update Available"
+    override val updateUpToDateTitle = "Up to Date"
+    override val updateUpToDateMessage = "You are already using the latest version (%s)."
+    override val updateErrorTitle = "Update Check Failed"
+    override val downloadApkButton = "Download APK"
+    override val updateButton = "Update"
+    override val openInBrowserButton = "Open in Browser"
+    override val downloadStartedToast = "Starting APK download..."
+    override val downloadFailedToast = "Failed to start APK download"
+    override val changelogHeader = "Release Summary"
+    override val currentVersionLabel = "Current Version"
+    override val latestVersionLabel = "Latest Version"
+    override val fileSizeLabel = "File Size"
 }
 
 class JsonBackedAppStrings(
@@ -523,6 +577,24 @@ class JsonBackedAppStrings(
     override val statusReadingCard get() = get("statusReadingCard", fallback.statusReadingCard)
     override val statusReadFailed get() = get("statusReadFailed", fallback.statusReadFailed)
     override val statusReadSuccessPrefix get() = get("statusReadSuccessPrefix", fallback.statusReadSuccessPrefix)
+
+    override val secAppUpdate get() = get("secAppUpdate", fallback.secAppUpdate)
+    override val appUpdateSubtitle get() = get("appUpdateSubtitle", fallback.appUpdateSubtitle)
+    override val checkUpdateButton get() = get("checkUpdateButton", fallback.checkUpdateButton)
+    override val checkingUpdate get() = get("checkingUpdate", fallback.checkingUpdate)
+    override val updateAvailableTitle get() = get("updateAvailableTitle", fallback.updateAvailableTitle)
+    override val updateUpToDateTitle get() = get("updateUpToDateTitle", fallback.updateUpToDateTitle)
+    override val updateUpToDateMessage get() = get("updateUpToDateMessage", fallback.updateUpToDateMessage)
+    override val updateErrorTitle get() = get("updateErrorTitle", fallback.updateErrorTitle)
+    override val downloadApkButton get() = get("downloadApkButton", fallback.downloadApkButton)
+    override val updateButton get() = get("updateButton", fallback.updateButton)
+    override val openInBrowserButton get() = get("openInBrowserButton", fallback.openInBrowserButton)
+    override val downloadStartedToast get() = get("downloadStartedToast", fallback.downloadStartedToast)
+    override val downloadFailedToast get() = get("downloadFailedToast", fallback.downloadFailedToast)
+    override val changelogHeader get() = get("changelogHeader", fallback.changelogHeader)
+    override val currentVersionLabel get() = get("currentVersionLabel", fallback.currentVersionLabel)
+    override val latestVersionLabel get() = get("latestVersionLabel", fallback.latestVersionLabel)
+    override val fileSizeLabel get() = get("fileSizeLabel", fallback.fileSizeLabel)
 }
 
 object JsonI18nLoader {

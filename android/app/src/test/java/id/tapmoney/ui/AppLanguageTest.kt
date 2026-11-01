@@ -97,5 +97,9 @@ class AppLanguageTest {
         assertEquals("Location", enMap["locationHeader"])
         assertTrue("id.json should have at least 50 keys", idMap.size >= 50)
         assertTrue("en.json should have at least 50 keys", enMap.size >= 50)
+        assertEquals("Pembaruan Aplikasi", idMap["secAppUpdate"])
+        assertEquals("App Updates", enMap["secAppUpdate"])
+        assertEquals("Periksa Pembaruan", idMap["checkUpdateButton"])
+        assertEquals("Check for Updates", enMap["checkUpdateButton"])
     }
 }

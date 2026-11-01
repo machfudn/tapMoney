@@ -112,5 +112,22 @@
   "statusSensorReady": "Sensor ready • Tap card on the back of phone",
   "statusReadingCard": "Reading electronic money card...",
   "statusReadFailed": "Failed to read card or card removed too quickly",
-  "statusReadSuccessPrefix": "Successfully read: "
+  "statusReadSuccessPrefix": "Successfully read: ",
+  "secAppUpdate": "App Updates",
+  "appUpdateSubtitle": "Check for the latest Tap Money release directly from the official GitHub repository.",
+  "checkUpdateButton": "Check for Updates",
+  "checkingUpdate": "Checking for updates...",
+  "updateAvailableTitle": "Update Available",
+  "updateUpToDateTitle": "Up to Date",
+  "updateUpToDateMessage": "You are already using the latest version (%s).",
+  "updateErrorTitle": "Update Check Failed",
+  "downloadApkButton": "Download APK",
+  "openInBrowserButton": "Open in Browser",
+  "downloadStartedToast": "Starting APK download...",
+  "downloadFailedToast": "Failed to start APK download",
+  "changelogHeader": "Release Summary",
+  "updateButton": "Update",
+  "currentVersionLabel": "Current Version",
+  "latestVersionLabel": "Latest Version",
+  "fileSizeLabel": "File Size"
 }

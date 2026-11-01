@@ -1,5 +1,7 @@
 package id.tapmoney.ui
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -7,7 +9,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -18,11 +22,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import id.tapmoney.BuildConfig
 import id.tapmoney.model.UserSettings
+import id.tapmoney.update.AppReleaseInfo
+import id.tapmoney.update.AppUpdateChecker
+import id.tapmoney.update.ApkDownloader
+import id.tapmoney.update.UpdateCheckResult
+import kotlinx.coroutines.launch
+import java.util.Locale
 
 @Composable
 fun SettingsScreen(
@@ -40,8 +52,11 @@ fun SettingsScreen(
     val context = LocalContext.current
     val strings = LocalAppStrings.current
     val headerColor = if (isDark) NeoColors.CyanDateDark else NeoColors.CyanDate
+    val coroutineScope = rememberCoroutineScope()
     var selectedTab by remember { mutableStateOf("scan") }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var isCheckingUpdate by remember { mutableStateOf(false) }
+    var updateResultDialog by remember { mutableStateOf<UpdateCheckResult?>(null) }
 
     BackHandler { onBack() }
 
@@ -398,6 +413,100 @@ fun SettingsScreen(
                             }
                         }
                     }
+
+                    item {
+                        SettingCard(
+                            surfaceColor = surfaceColor,
+                            borderColor = borderColor,
+                            title = strings.secAppUpdate,
+                            titleColor = headerColor
+                        ) {
+                            Text(
+                                text = strings.appUpdateSubtitle,
+                                fontSize = 12.sp,
+                                color = textSubtleColor,
+                                lineHeight = 16.sp
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(surfaceAltColor)
+                                    .border(1.5.dp, borderColor, RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = strings.currentVersionLabel,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textSubtleColor
+                                )
+                                Text(
+                                    text = "v${BuildConfig.VERSION_NAME}",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = headerColor
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (!isCheckingUpdate) {
+                                        isCheckingUpdate = true
+                                        coroutineScope.launch {
+                                            val result = AppUpdateChecker.checkForUpdates(BuildConfig.VERSION_NAME)
+                                            isCheckingUpdate = false
+                                            updateResultDialog = result
+                                        }
+                                    }
+                                },
+                                enabled = !isCheckingUpdate,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = headerColor,
+                                    disabledContainerColor = headerColor.copy(alpha = 0.6f)
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .neoCard(bgColor = headerColor, borderColor = borderColor, shadowOffset = 2.dp, cornerRadius = 6.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(vertical = 10.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    if (isCheckingUpdate) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            color = Color.Black,
+                                            strokeWidth = 2.dp
+                                        )
+                                        Text(
+                                            text = strings.checkingUpdate,
+                                            color = Color.Black,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 13.sp
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            tint = Color.Black,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = strings.checkUpdateButton,
+                                            color = Color.Black,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -447,6 +556,326 @@ fun SettingsScreen(
                 }
             }
         )
+    }
+
+    when (val res = updateResultDialog) {
+        is UpdateCheckResult.UpdateAvailable -> {
+            val info = res.info
+            AlertDialog(
+                onDismissRequest = { updateResultDialog = null },
+                containerColor = surfaceColor,
+                titleContentColor = textColor,
+                textContentColor = textSubtleColor,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp)
+                    .border(2.dp, borderColor, RoundedCornerShape(12.dp)),
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.NewReleases,
+                            contentDescription = null,
+                            tint = NeoColors.Green,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Text(
+                            text = strings.updateAvailableTitle,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 18.sp,
+                            color = textColor
+                        )
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(surfaceAltColor)
+                                .border(1.dp, borderColor, RoundedCornerShape(6.dp))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "${strings.currentVersionLabel}: v${BuildConfig.VERSION_NAME}",
+                                    fontSize = 11.sp,
+                                    color = textSubtleColor,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "${strings.latestVersionLabel}: v${info.versionName}",
+                                    fontSize = 13.sp,
+                                    color = headerColor,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            if (info.apkSize != null) {
+                                val mbSize = info.apkSize / (1024.0 * 1024.0)
+                                Text(
+                                    text = String.format(Locale.US, "%.1f MB", mbSize),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textColor
+                                )
+                            }
+                        }
+
+                        if (info.releaseNotes.isNotBlank()) {
+                            Text(
+                                text = strings.changelogHeader,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = textColor
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 160.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(surfaceAltColor)
+                                    .border(1.dp, borderColor.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    text = info.releaseNotes,
+                                    fontSize = 11.sp,
+                                    color = textSubtleColor,
+                                    lineHeight = 15.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = { updateResultDialog = null },
+                                colors = ButtonDefaults.buttonColors(containerColor = surfaceAltColor),
+                                shape = RoundedCornerShape(6.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = strings.cancel,
+                                    color = textColor,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (!info.downloadUrl.isNullOrBlank()) {
+                                        val apkName = info.apkName ?: "TapMoney-${info.tagName}.apk"
+                                        val downloadId = ApkDownloader.downloadApk(context, info.downloadUrl, apkName)
+                                        if (downloadId != null) {
+                                            Toast.makeText(context, strings.downloadStartedToast, Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, strings.downloadFailedToast, Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else if (info.htmlUrl.isNotBlank()) {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.htmlUrl))
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                    }
+                                    updateResultDialog = null
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = NeoColors.Green),
+                                shape = RoundedCornerShape(6.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor),
+                                modifier = Modifier
+                                    .weight(1.3f)
+                                    .neoCard(bgColor = NeoColors.Green, borderColor = borderColor, shadowOffset = 2.dp, cornerRadius = 6.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = null,
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = strings.updateButton,
+                                        color = Color.Black,
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        if (info.htmlUrl.isNotBlank()) {
+                            TextButton(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.htmlUrl))
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {}
+                                    updateResultDialog = null
+                                },
+                                modifier = Modifier.align(Alignment.CenterHorizontally)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.OpenInBrowser,
+                                        contentDescription = null,
+                                        tint = textSubtleColor,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = strings.openInBrowserButton,
+                                        color = textSubtleColor,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                dismissButton = {}
+            )
+        }
+        is UpdateCheckResult.UpToDate -> {
+            AlertDialog(
+                onDismissRequest = { updateResultDialog = null },
+                containerColor = surfaceColor,
+                titleContentColor = textColor,
+                textContentColor = textSubtleColor,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.border(2.dp, borderColor, RoundedCornerShape(12.dp)),
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = NeoColors.Green,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Text(
+                            text = strings.updateUpToDateTitle,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 18.sp,
+                            color = textColor
+                        )
+                    }
+                },
+                text = {
+                    Text(
+                        text = String.format(strings.updateUpToDateMessage, BuildConfig.VERSION_NAME),
+                        fontSize = 13.sp,
+                        color = textSubtleColor,
+                        lineHeight = 18.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { updateResultDialog = null },
+                        colors = ButtonDefaults.buttonColors(containerColor = headerColor),
+                        shape = RoundedCornerShape(6.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor)
+                    ) {
+                        Text("OK", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            )
+        }
+        is UpdateCheckResult.Error -> {
+            AlertDialog(
+                onDismissRequest = { updateResultDialog = null },
+                containerColor = surfaceColor,
+                titleContentColor = textColor,
+                textContentColor = textSubtleColor,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.border(2.dp, borderColor, RoundedCornerShape(12.dp)),
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = NeoColors.Red,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Text(
+                            text = strings.updateErrorTitle,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 18.sp,
+                            color = textColor
+                        )
+                    }
+                },
+                text = {
+                    Text(
+                        text = res.message,
+                        fontSize = 13.sp,
+                        color = textSubtleColor,
+                        lineHeight = 18.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            isCheckingUpdate = true
+                            updateResultDialog = null
+                            coroutineScope.launch {
+                                val result = AppUpdateChecker.checkForUpdates(BuildConfig.VERSION_NAME)
+                                isCheckingUpdate = false
+                                updateResultDialog = result
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = headerColor),
+                        shape = RoundedCornerShape(6.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor)
+                    ) {
+                        Text(strings.checkUpdateButton, color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    Button(
+                        onClick = { updateResultDialog = null },
+                        colors = ButtonDefaults.buttonColors(containerColor = surfaceAltColor),
+                        shape = RoundedCornerShape(6.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor)
+                    ) {
+                        Text(strings.cancel, color = textColor, fontWeight = FontWeight.Bold)
+                    }
+                }
+            )
+        }
+        null -> {}
     }
 }
 
