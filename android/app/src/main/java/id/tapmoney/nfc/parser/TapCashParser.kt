@@ -98,7 +98,9 @@ class TapCashParser : EmoneyParser {
         }
 
         if (history.isNotEmpty()) {
-            return history.distinctBy { "${it.date}_${it.time}_${it.amount}" }
+            return history
+                .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.type}" }
+                .sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
         }
 
         // 2. Batch read 903203000200F0 fallback
@@ -118,7 +120,9 @@ class TapCashParser : EmoneyParser {
             log.append("TapCash batch hist err: ${e.message}\n")
         }
 
-        return history.distinctBy { "${it.date}_${it.time}_${it.amount}" }
+        return history
+            .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.type}" }
+            .sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
     }
 
     companion object {

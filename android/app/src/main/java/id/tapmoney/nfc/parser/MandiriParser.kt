@@ -110,21 +110,22 @@ class MandiriParser : EmoneyParser {
     private fun readHistory(channel: ApduChannel, cardNumber: String, log: StringBuilder): List<CardTransactionItem> {
         val history = mutableListOf<CardTransactionItem>()
 
-        // 1. New card format via 00D1
+        // 1. New card format via 00D1 (read until non-success or up to 64 blocks)
         try {
             val newLogBuilder = StringBuilder()
-            for (i in 0 until 32) {
+            for (i in 0 until 64) {
                 val cmd = byteArrayOf(0x00, 0xD1.toByte(), i.toByte(), 0x00, 0x00)
                 val resp = channel.transceive(cmd)
                 if (!resp.isSuccess()) break
                 val data = resp.payload()
-                if (data.all { it == 0.toByte() }) break
-                newLogBuilder.append(data.toHexString())
+                if (data.isNotEmpty()) {
+                    newLogBuilder.append(data.toHexString())
+                }
             }
 
             val newLogStr = newLogBuilder.toString()
-            if (newLogStr.isNotEmpty() && newLogStr.length % 48 == 0) {
-                for (j in 0 until newLogStr.length step 48) {
+            if (newLogStr.isNotEmpty() && newLogStr.length >= 48) {
+                for (j in 0 until (newLogStr.length - 47) step 48) {
                     val record = newLogStr.substring(j, j + 48)
                     val dateObj = TxDates.parseBcdDateTime(record.substring(0, 6), record.substring(6, 12)) ?: continue
                     val terminalIdHex = record.substring(14, 28)
@@ -137,13 +138,18 @@ class MandiriParser : EmoneyParser {
                     val typeInt = record.substring(28, 32).toIntOrNull() ?: 0
                     val isTopUp = typeInt == 100
                     val amount = reverseHex(record.substring(32, 40)).toLongOrNull(16) ?: 0L
+                    val restBal = reverseHex(record.substring(40, 48)).toLongOrNull(16)
 
-                    if (amount > 0) {
+                    if (typeInt == 0 && amount == 0L && (restBal == null || restBal == 0L)) {
+                        continue
+                    }
+
+                    if (amount > 0 || (restBal != null && restBal > 0)) {
                         history.add(
                             CardTransactionItem(
                                 type = if (isTopUp) "Top up" else "Payment",
                                 amount = amount,
-                                balance = null,
+                                balance = restBal,
                                 date = TxDates.formatDate(dateObj),
                                 time = TxDates.formatTime(dateObj),
                                 terminalId = location.takeIf { it.isNotBlank() }
@@ -156,60 +162,53 @@ class MandiriParser : EmoneyParser {
             log.append("Mandiri 00D1 hist err: ${e.message}\n")
         }
 
-        if (history.isNotEmpty()) {
-            return history.distinctBy { "${it.date}_${it.time}_${it.amount}" }
-        }
+        // 2. SFI history via 00B2 rec sfi 00 (support both 24 and 44 SFIs)
+        val sfis = listOf("24", "44")
+        for (sfi in sfis) {
+            for (rec in 1..30) {
+                val cmd = String.format("00B2%02X%s00", rec, sfi).hexToBytes()
+                try {
+                    val resp = channel.transceive(cmd)
+                    if (resp.size < 2) break
+                    val sw1 = resp[resp.size - 2].toInt() and 0xFF
+                    val sw2 = resp[resp.size - 1].toInt() and 0xFF
+                    if (sw1 == 0x6A && sw2 == 0x83) break
+                    if (!resp.isSuccess()) break
 
-        // 2. SFI history via 00B2 rec sfi 00
-        val isNewCard = cardNumber.startsWith("603298") || cardNumber.startsWith("603299")
-        val sfi = if (isNewCard) "24" else "44"
-        for (rec in 1..30) {
-            val cmd = String.format("00B2%02X%s00", rec, sfi).hexToBytes()
-            try {
-                val resp = channel.transceive(cmd)
-                if (resp.size < 2) break
-                val sw1 = resp[resp.size - 2].toInt() and 0xFF
-                val sw2 = resp[resp.size - 1].toInt() and 0xFF
-                if (sw1 == 0x6A && sw2 == 0x83) break
-                if (!resp.isSuccess()) break
+                    if (resp.size >= 24) {
+                        val rawDate = resp.sliceArray(0 until 6).toHexString()
+                        if (rawDate != "000000000000" && rawDate != "FFFFFFFFFFFF") {
+                            val dateObj = TxDates.parseBcdDateTime(rawDate.substring(0, 6), rawDate.substring(6, 12))
+                            val typeCode = (resp[6].toInt() and 0xFF) or ((resp[7].toInt() and 0xFF) shl 8)
+                            val isTopUp = typeCode == 100 || typeCode == 256 || typeCode == 336
+                            val amount = ((resp[8].toLong() and 0xFF)) or
+                                    ((resp[9].toLong() and 0xFF) shl 8) or
+                                    ((resp[10].toLong() and 0xFF) shl 16) or
+                                    ((resp[11].toLong() and 0xFF) shl 24)
+                            val restBal = ((resp[12].toLong() and 0xFF)) or
+                                    ((resp[13].toLong() and 0xFF) shl 8) or
+                                    ((resp[14].toLong() and 0xFF) shl 16) or
+                                    ((resp[15].toLong() and 0xFF) shl 24)
+                            val tid = resp.sliceArray(16 until 20).toHexString()
 
-                if (resp.size >= 24) {
-                    val rawDate = resp.sliceArray(0 until 6).toHexString()
-                    if (rawDate != "000000000000" && rawDate != "FFFFFFFFFFFF") {
-                        val dateObj = TxDates.parseBcdDateTime(rawDate.substring(0, 6), rawDate.substring(6, 12))
-                        val typeCode = (resp[6].toInt() and 0xFF) or ((resp[7].toInt() and 0xFF) shl 8)
-                        val isTopUp = typeCode == 100 || typeCode == 256 || typeCode == 336
-                        val amount = ((resp[8].toLong() and 0xFF)) or
-                                ((resp[9].toLong() and 0xFF) shl 8) or
-                                ((resp[10].toLong() and 0xFF) shl 16) or
-                                ((resp[11].toLong() and 0xFF) shl 24)
-                        val restBal = ((resp[12].toLong() and 0xFF)) or
-                                ((resp[13].toLong() and 0xFF) shl 8) or
-                                ((resp[14].toLong() and 0xFF) shl 16) or
-                                ((resp[15].toLong() and 0xFF) shl 24)
-                        val tid = resp.sliceArray(16 until 20).toHexString()
-
-                        if (dateObj != null && (amount > 0 || restBal > 0)) {
-                            history.add(
-                                CardTransactionItem(
-                                    type = if (isTopUp) "Top up" else "Payment",
-                                    amount = amount,
-                                    balance = restBal,
-                                    date = TxDates.formatDate(dateObj),
-                                    time = TxDates.formatTime(dateObj),
-                                    terminalId = tid
+                            if (dateObj != null && (amount > 0 || restBal > 0)) {
+                                history.add(
+                                    CardTransactionItem(
+                                        type = if (isTopUp) "Top up" else "Payment",
+                                        amount = amount,
+                                        balance = restBal,
+                                        date = TxDates.formatDate(dateObj),
+                                        time = TxDates.formatTime(dateObj),
+                                        terminalId = tid
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
+                } catch (_: Exception) {
+                    break
                 }
-            } catch (_: Exception) {
-                break
             }
-        }
-
-        if (history.isNotEmpty()) {
-            return history.distinctBy { "${it.date}_${it.time}_${it.amount}" }
         }
 
         // 3. Old Mandiri format
@@ -251,6 +250,8 @@ class MandiriParser : EmoneyParser {
             } catch (_: Exception) {}
         }
 
-        return history.distinctBy { "${it.date}_${it.time}_${it.amount}" }
+        return history
+            .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.type}" }
+            .sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
     }
 }

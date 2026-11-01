@@ -134,7 +134,9 @@ class BrizziParser : EmoneyParser {
         }
 
         if (history.isNotEmpty()) {
-            return history.distinctBy { "${it.date}_${it.time}_${it.amount}" }
+            return history
+                .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.type}" }
+                .sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
         }
 
         // 2. DESFire record read fallback
@@ -181,6 +183,8 @@ class BrizziParser : EmoneyParser {
             }
         }
 
-        return history.distinctBy { "${it.date}_${it.time}_${it.amount}" }
+        return history
+            .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.type}" }
+            .sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
     }
 }

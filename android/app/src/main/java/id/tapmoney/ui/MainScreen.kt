@@ -77,7 +77,6 @@ fun MainScreen(
     var showSettingsScreen by remember { mutableStateOf(false) }
     var editingTerminalId by remember { mutableStateOf<String?>(null) }
     var editingTerminalName by remember { mutableStateOf("") }
-    var showAllHistory by remember(currentCard?.cardNumber) { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -244,9 +243,8 @@ fun MainScreen(
                 if (activeTab == "chip") {
                     val history = currentCard?.history ?: emptyList()
                     if (history.isNotEmpty()) {
-                        val displayHistory = if (showAllHistory) history else history.take(3)
                         val isEn = resolveIsEnglish(settings.appLanguage)
-                        val grouped = groupHistoryByDate(displayHistory, isEn)
+                        val grouped = groupHistoryByDate(history, isEn)
                         items(grouped) { group ->
                             HistoryGroupWidget(
                                 group = group,
@@ -262,38 +260,6 @@ fun MainScreen(
                                     editingTerminalName = curName
                                 }
                             )
-                        }
-
-                        if (history.size > 3) {
-                            item {
-                                Button(
-                                    onClick = { showAllHistory = !showAllHistory },
-                                    colors = ButtonDefaults.buttonColors(containerColor = surfaceColor),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .neoCard(bgColor = surfaceColor, borderColor = borderColor, shadowOffset = 2.dp, cornerRadius = 8.dp),
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(vertical = 10.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text(
-                                            text = if (showAllHistory) strings.showLess else strings.viewAll,
-                                            color = textColor,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Black
-                                        )
-                                        Icon(
-                                            imageVector = if (showAllHistory) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                            contentDescription = null,
-                                            tint = textColor,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                            }
                         }
                     } else {
                         item {
@@ -824,8 +790,9 @@ data class TransactionGroup(
 )
 
 fun groupHistoryByDate(items: List<CardTransactionItem>, isEnglish: Boolean = false): List<TransactionGroup> {
+    val sortedItems = items.sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
     val map = linkedMapOf<String, MutableList<CardTransactionItem>>()
-    for (tx in items) {
+    for (tx in sortedItems) {
         val list = map.getOrPut(tx.date) { mutableListOf() }
         list.add(tx)
     }
@@ -838,7 +805,7 @@ fun groupHistoryByDate(items: List<CardTransactionItem>, isEnglish: Boolean = fa
         val dispDate = try {
             val d = sdfIn.parse(dateStr)
             if (d != null) sdfOut.format(d) else dateStr
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             dateStr
         }
         TransactionGroup(dateStr, dispDate, txs)

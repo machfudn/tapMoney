@@ -16,26 +16,35 @@ class HistoryDisplayTest {
     )
 
     @Test
-    fun `initial display slices to first 3 items`() {
-        val history = listOf(
-            mockTx("2026-05-01", "10:00:00", 15_000),
-            mockTx("2026-05-01", "09:00:00", 25_000),
-            mockTx("2026-04-30", "14:00:00", 10_000),
+    fun `groupHistoryByDate sorts strictly descending by date and time`() {
+        val unsortedHistory = listOf(
             mockTx("2026-04-29", "18:00:00", 50_000),
-            mockTx("2026-04-28", "08:30:00", 20_000)
+            mockTx("2026-05-01", "09:00:00", 25_000),
+            mockTx("2026-04-28", "08:30:00", 20_000),
+            mockTx("2026-05-01", "10:00:00", 15_000),
+            mockTx("2026-04-30", "14:00:00", 10_000)
         )
 
-        val initialItems = history.take(3)
-        assertEquals(3, initialItems.size)
-
-        val groups = groupHistoryByDate(initialItems)
-        val totalGroupedCount = groups.sumOf { it.transactions.size }
-        assertEquals(3, totalGroupedCount)
-        assertEquals(2, groups.size)
+        val groups = groupHistoryByDate(unsortedHistory)
+        assertEquals(4, groups.size)
+        // Group order should be descending by date
         assertEquals("2026-05-01", groups[0].date)
-        assertEquals(2, groups[0].transactions.size)
         assertEquals("2026-04-30", groups[1].date)
-        assertEquals(1, groups[1].transactions.size)
+        assertEquals("2026-04-29", groups[2].date)
+        assertEquals("2026-04-28", groups[3].date)
+
+        // Inside group 2026-05-01, transactions should be descending by time
+        assertEquals("10:00:00", groups[0].transactions[0].time)
+        assertEquals("09:00:00", groups[0].transactions[1].time)
+    }
+
+    @Test
+    fun `flazz seconds decode uses 1980 base in WIB`() {
+        // 0 seconds from 1980-01-01 00:00:00 WIB
+        val d1 = id.tapmoney.nfc.TxDates.parseFlazzSeconds(86400L) // 1 day later
+        org.junit.Assert.assertNotNull(d1)
+        val dateStr = id.tapmoney.nfc.TxDates.formatDate(d1!!)
+        assertEquals("1980-01-02", dateStr)
     }
 
     @Test

@@ -207,7 +207,7 @@ class FlazzParser : EmoneyParser {
 
                     val timeBytes = byteArrayOf(record[38], record[39], record[40], record[41])
                     val timeSecs = ByteBuffer.wrap(timeBytes).int.toLong() and 0xFFFFFFFFL
-                    val dateObj = Date(timeSecs * 1000L)
+                    val dateObj = TxDates.parseFlazzSeconds(timeSecs) ?: Date(timeSecs * 1000L)
 
                     val locBytes = record.sliceArray(30..37)
                     val terminalIdHex = locBytes.toHexString()
@@ -233,11 +233,12 @@ class FlazzParser : EmoneyParser {
         }
 
         if (history.isNotEmpty()) {
-            return history.distinctBy { "${it.date}_${it.time}_${it.amount}" }
+            return history
+                .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.type}" }
+                .sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
         }
 
         // 2. DESFire Gen 2 fallback
-        val baseDate1980 = 315532800000L
         for (rec in 1..10) {
             val apduRec = String.format("90BD000007%02X00000020000000", rec).hexToBytes()
             try {
@@ -252,8 +253,7 @@ class FlazzParser : EmoneyParser {
                     val isTopUp = typeHex == "01" || typeHex == "02"
                     val secHex = hex.substring(8, 16)
                     val sec = secHex.toLongOrNull(16) ?: 0L
-                    val txDateMs = baseDate1980 + (sec * 1000)
-                    val dateObj = Date(txDateMs)
+                    val dateObj = TxDates.parseFlazzSeconds(sec) ?: Date(sec * 1000L)
 
                     val amtHex = hex.substring(24, 32)
                     val amount = amtHex.toLongOrNull(16) ?: 0L
@@ -280,7 +280,9 @@ class FlazzParser : EmoneyParser {
         }
 
         if (history.isNotEmpty()) {
-            return history.distinctBy { "${it.date}_${it.time}_${it.amount}" }
+            return history
+                .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.type}" }
+                .sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
         }
 
         // 3. Gen 1 history fallback
@@ -293,15 +295,17 @@ class FlazzParser : EmoneyParser {
                 if (hex.length >= 32) {
                     val amtHex = hex.substring(12, 18)
                     val amount = amtHex.toLongOrNull(16) ?: 0L
+                    val dateObj = TxDates.parseBcdDateTime(hex.substring(0, 6), hex.substring(6, 12))
+                        ?: TxDates.parseHexDateTime(hex.substring(0, 6), hex.substring(6, 12))
+                        ?: Date()
                     if (amount > 0) {
-                        val now = Date()
                         history.add(
                             CardTransactionItem(
                                 type = "Payment",
                                 amount = amount,
                                 balance = null,
-                                date = TxDates.formatDate(now),
-                                time = TxDates.formatTime(now),
+                                date = TxDates.formatDate(dateObj),
+                                time = TxDates.formatTime(dateObj),
                                 terminalId = null
                             )
                         )
@@ -312,7 +316,9 @@ class FlazzParser : EmoneyParser {
             }
         }
 
-        return history.distinctBy { "${it.date}_${it.time}_${it.amount}" }
+        return history
+            .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.type}" }
+            .sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
     }
 
     /**
