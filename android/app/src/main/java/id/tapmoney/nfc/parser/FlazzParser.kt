@@ -175,8 +175,10 @@ class FlazzParser : EmoneyParser {
 
         // 1. SFI 4 (0x84) & SFI 5 (0x85) Binary Log Reading
         try {
-            val cmdCccc = byteArrayOf(0x00, 0x00, 0x40, 0x0B, 0x00, 0x00, 0x04, 0x02, 0x00, 0x00)
-            channel.transceive(cmdCccc)
+            try {
+                val cmdCccc = byteArrayOf(0x00, 0x00, 0x40, 0x0B, 0x00, 0x00, 0x04, 0x02, 0x00, 0x00)
+                channel.transceive(cmdCccc)
+            } catch (_: Exception) {}
 
             val sfis = listOf(0x84, 0x85)
             for (sfi in sfis) {
@@ -258,14 +260,16 @@ class FlazzParser : EmoneyParser {
 
         // 2. DESFire Gen 2 circular log reading (combined with SFI history, up to 256 records)
         try {
-            channel.transceive(byteArrayOf(0x90.toByte(), 0x32, 0x03, 0x00, 0x00))
+            try {
+                channel.transceive(byteArrayOf(0x90.toByte(), 0x32, 0x03, 0x00, 0x00))
+            } catch (_: Exception) {}
 
             for (rec in 0 until 256) {
                 val cmd32 = byteArrayOf(0x90.toByte(), 0x32, 0x03, 0x00, 0x01, rec.toByte(), 0x20)
                 try {
                     var resp = channel.transceive(cmd32)
                     if (resp.size < 34 || !resp.isSuccess()) {
-                        val cmdBd = String.format("90BD000007%02X00000020000000", rec).hexToBytes()
+                        val cmdBd = String.format("90BD00000703%02X000001000000", rec).hexToBytes()
                         resp = channel.transceive(cmdBd)
                     }
                     if (resp.size < 34 || !resp.isSuccess()) {
@@ -359,7 +363,7 @@ class FlazzParser : EmoneyParser {
 
         // Continuous ledger balance consistency: propagate backwards if any balance is missing
         if (sorted.isNotEmpty()) {
-            if (sorted[0].balance == null && currentBalance != null && currentBalance > 0L) {
+            if (sorted[0].balance == null && currentBalance != null && currentBalance >= 0L) {
                 sorted[0] = sorted[0].copy(balance = currentBalance)
             }
             for (i in 1 until sorted.size) {
