@@ -6,7 +6,9 @@ dist-ssr/
 # Test Suites & Testing Configs
 e2e/
 test/
-tests/
+!tests/
+tests/*
+!tests/FlazzParserTest.kt
 !android/app/src/test/
 !android/app/src/test/java/
 !android/app/src/test/java/id/
