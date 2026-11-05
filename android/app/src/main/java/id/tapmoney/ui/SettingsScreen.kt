@@ -699,7 +699,13 @@ fun SettingsScreen(
                             }
                         }
 
-                        if (info.releaseNotes.isNotBlank()) {
+                        val localizedNotes = remember(info.releaseNotes, settings.appLanguage) {
+                            AppUpdateChecker.localizeReleaseNotes(
+                                rawNotes = info.releaseNotes,
+                                isEnglish = resolveIsEnglish(settings.appLanguage)
+                            )
+                        }
+                        if (localizedNotes.isNotBlank()) {
                             Text(
                                 text = strings.changelogHeader,
                                 fontSize = 12.sp,
@@ -717,7 +723,7 @@ fun SettingsScreen(
                                     .padding(8.dp)
                             ) {
                                 MarkdownContent(
-                                    markdown = info.releaseNotes,
+                                    markdown = localizedNotes,
                                     textColor = textColor,
                                     textSubtleColor = textSubtleColor,
                                     headerColor = headerColor,
