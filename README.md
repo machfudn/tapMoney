@@ -4,8 +4,9 @@
 
 # Tap Money
 
+[![Unduh APK Rilis](https://img.shields.io/badge/Download-Release%20APK-success?logo=android&logoColor=white)](https://github.com/machfudn/tapMoney/releases/latest)
 [![Android CI Release](https://github.com/machfudn/tapMoney/actions/workflows/build-release-apk.yml/badge.svg)](https://github.com/machfudn/tapMoney/actions/workflows/build-release-apk.yml)
-[![Version](https://img.shields.io/badge/version-v1.1.12-blue.svg)](#)
+[![Version](https://img.shields.io/badge/version-v1.1.12-blue.svg)](https://github.com/machfudn/tapMoney/releases/latest)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-purple.svg?logo=kotlin)](#)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2024.10.01-4285F4.svg?logo=android)](#)
 [![Target SDK](https://img.shields.io/badge/targetSdk-35%20(Android%2015)-green.svg)](#)
@@ -13,6 +14,8 @@
 [![License](https://img.shields.io/badge/license-MIT-black.svg)](#)
 
 Aplikasi Android native murni (100% Kotlin & Jetpack Compose) untuk membaca saldo riil, nomor kartu fisik (PAN), dan mutasi transaksi chip uang elektronik berbasis NFC (ISO-DEP & FeliCa).
+
+> 📲 **Unduh APK Rilis Siap Pakai**: Dapatkan versi rilis resmi bertanda tangan terbaru di [GitHub Releases](https://github.com/machfudn/tapMoney/releases/latest). Langsung pasang di smartphone Android Anda tanpa perlu kompilasi kode sumber.
 
 ---
 
@@ -25,12 +28,12 @@ Aplikasi Android native murni (100% Kotlin & Jetpack Compose) untuk membaca sald
 ## Daftar Isi
 - [Ringkasan](#ringkasan)
 - [Fitur Utama](#fitur-utama)
-- [Daftar Kartu yang Didukung](#daftar-kartu-yang-didukung)
+- [Daftar Kartu yang Didukung & Segmentasi](#daftar-kartu-yang-didukung--segmentasi)
 - [Arsitektur & Struktur Proyek](#arsitektur--struktur-proyek)
 - [Spesifikasi Teknis & Parsing APDU](#spesifikasi-teknis--parsing-apdu)
-- [Prasyarat Sistem](#prasyarat-sistem)
-- [Panduan Build & Menjalankan](#panduan-build--menjalankan)
-- [Build Rilis & Signing APK](#build-rilis--signing-apk)
+- [Persyaratan Perangkat](#persyaratan-perangkat)
+- [Unduh & Pemasangan APK Rilis](#unduh--pemasangan-apk-rilis)
+- [Petunjuk Penggunaan](#petunjuk-penggunaan)
 - [Author](#author)
 
 ---
@@ -156,6 +159,8 @@ tapMoney/
 │   ├── version.properties                       # Konfigurasi versi dinamis rilis (v1.1.12 / 10112)
 │   ├── RELEASE_NOTES.md                         # Catatan rilis v1.1.12
 │   └── gradle.properties                        # Optimasi JVM & compiler arguments
+├── tests/
+│   └── FlazzParserTest.kt                       # Suite unit test parsing APDU & engine kartu
 ├── README.md                                    # Dokumentasi Bahasa Indonesia
 └── README.en.md                                 # English Documentation
 ```
@@ -200,55 +205,40 @@ Membaca block memory tanpa enkripsi (*Read Without Encryption*) pada Service Cod
 
 ---
 
-## Prasyarat Sistem
+## Persyaratan Perangkat
 
-- **Android Studio**: Versi Koala (2024.1.1) atau versi lebih baru.
-- **JDK**: Java Development Kit 21 (LTS).
-- **Target OS**: Android 7.0 (API 24) hingga Android 15 (API 35).
-- **Perangkat**: Ponsel fisik Android dengan fitur sensor NFC aktif.
-
----
-
-## Panduan Build & Menjalankan
-
-### 1. Navigasi ke Folder Android
-```bash
-cd tapMoney/android
-```
-
-### 2. Kompilasi Debug APK
-```bash
-./gradlew assembleDebug
-```
-File APK debug berada di:
-```text
-android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-### 3. Instal ke Perangkat Android
-Hubungkan ponsel via kabel USB dengan USB Debugging aktif:
-```bash
-./gradlew installDebug
-```
+- **Sistem Operasi**: Android 7.0 (Nougat / API 24) hingga Android 15 (Vanilla Ice Cream / API 35).
+- **Perangkat Keras**: Smartphone Android fisik yang memiliki chip dan antena NFC aktif.
+- **Izin Aplikasi**:
+  - `android.permission.NFC`: Akses duplex hardware NFC membaca tag ISO-DEP & FeliCa.
+  - `android.permission.VIBRATE`: Umpan balik haptik konfirmasi pembacaan kartu sukses/gagal.
+  - `android.permission.BLUETOOTH` / `BLUETOOTH_CONNECT` / `BLUETOOTH_SCAN`: Akses opsional pairing printer thermal 58mm untuk cetak struk.
 
 ---
 
-## Build Rilis & Signing APK
+## Unduh & Pemasangan APK Rilis
 
-Kompilasi varian release:
-```bash
-./gradlew assembleRelease
-```
+1. **Unduh APK Resmi**: Kunjungi halaman [GitHub Releases](https://github.com/machfudn/tapMoney/releases/latest) dan unduh berkas `TapMoney-v*.apk`.
+2. **Pemasangan di Smartphone**:
+   - Buka file APK dari panel notifikasi unduhan atau pengelola berkas (*File Manager*).
+   - Jika Android menampilkan peringatan keamanan instalasi dari luar Google Play, ketuk **Pengaturan (Settings)** lalu aktifkan **Izinkan dari sumber ini (Allow from this source)**.
+   - Ketuk **Instal (Install)** dan tunggu proses hingga selesai.
+3. **Integritas & Keamanan Rilis**:
+   - Seluruh rilis APK resmi dikompilasi, diuji, dan ditandatangani secara otomatis melalui pipeline aman GitHub Actions CI/CD ([`build-release-apk.yml`](.github/workflows/build-release-apk.yml)).
+   - Bebas pelacak (*no trackers*), bebas iklan, dan berfungsi 100% offline tanpa login.
 
-Tandatangani file APK menggunakan `apksigner`:
-```bash
-apksigner sign --ks release.keystore --ks-pass pass:YOUR_PASSWORD --out TapMoney-v1.1.12.apk android/app/build/outputs/apk/release/app-release-unsigned.apk
-```
+---
 
-Verifikasi integritas tanda tangan:
-```bash
-apksigner verify --verbose TapMoney-v1.1.12.apk
-```
+## Petunjuk Penggunaan
+
+1. **Aktifkan NFC**: Buka Pengaturan Cepat (*Quick Settings*) Android atau menu *Settings > Connected devices > Connection preferences > NFC*, lalu pastikan sakelar **NFC** dalam keadaan aktif.
+2. **Buka Aplikasi**: Jalankan aplikasi **Tap Money**.
+3. **Tempelkan Kartu**: Dekatkan kartu uang elektronik Anda (Flazz, e-Money, TapCash, Brizzi, JakCard, KMT, dll.) ke bagian belakang bodi ponsel (posisi sensor antena NFC ponsel biasanya berada di sekitar modul kamera belakang atau area tengah atas).
+4. **Tahan Posisi**: Tahan kartu menempel selama 1–2 detik hingga ponsel bergetar atau berbunyi konfirmasi. Saldo riil, nomor fisik kartu (PAN 16-digit), bank penerbit, dan mutasi transaksi on-chip akan langsung ditampilkan di layar.
+5. **Simpan, Ekspor, atau Cetak**:
+   - Berikan nama alias terminal transaksi secara kustom bila diperlukan.
+   - Ketuk tombol simpan untuk mencatat riwayat kartu ke database lokal perangkat.
+   - Ekspor ringkasan kartu dan mutasi ke berkas dokumen PDF A4 Neobrutalisme atau cetak struk via printer thermal Bluetooth 58mm.
 
 ---
 
