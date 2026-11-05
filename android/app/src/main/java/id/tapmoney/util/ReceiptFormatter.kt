@@ -49,41 +49,57 @@ object ReceiptFormatter {
         if (items.isEmpty()) return emptyList()
         val sorted = items.sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" }).toMutableList()
 
-        if (sorted[0].balance == null && card.balance > 0L) {
+        // ponytail: deterministic ledger backpropagation from ground truth balance. Ceiling: contiguous transactions.
+        if (card.balance >= 0L) {
             sorted[0] = sorted[0].copy(balance = card.balance)
-        }
-
-        // Backward propagation (newer to older)
-        for (i in 1 until sorted.size) {
-            if (sorted[i].balance == null) {
+            for (i in 1 until sorted.size) {
                 val prev = sorted[i - 1]
-                if (prev.balance != null) {
+                val prevBal = prev.balance
+                if (prevBal != null) {
                     val isPrevPayment = !prev.type.contains("Top", true) && !prev.type.contains("Isi", true)
                     val computed = if (isPrevPayment) {
-                        prev.balance!! + prev.amount
+                        prevBal + prev.amount
                     } else {
-                        prev.balance!! - prev.amount
+                        prevBal - prev.amount
                     }
-                    if (computed in 0L..100_000_000L) {
-                        sorted[i] = sorted[i].copy(balance = computed)
+                    sorted[i] = sorted[i].copy(balance = if (computed in 0L..100_000_000L) computed else null)
+                }
+            }
+        } else {
+            // Backward propagation (newer to older)
+            for (i in 1 until sorted.size) {
+                if (sorted[i].balance == null) {
+                    val prev = sorted[i - 1]
+                    val prevBal = prev.balance
+                    if (prevBal != null) {
+                        val isPrevPayment = !prev.type.contains("Top", true) && !prev.type.contains("Isi", true)
+                        val computed = if (isPrevPayment) {
+                            prevBal + prev.amount
+                        } else {
+                            prevBal - prev.amount
+                        }
+                        if (computed in 0L..100_000_000L) {
+                            sorted[i] = sorted[i].copy(balance = computed)
+                        }
                     }
                 }
             }
-        }
 
-        // Forward propagation (older to newer) if latest balance was null
-        for (i in (sorted.size - 2) downTo 0) {
-            if (sorted[i].balance == null) {
-                val nextOlder = sorted[i + 1]
-                if (nextOlder.balance != null) {
-                    val isCurrentPayment = !sorted[i].type.contains("Top", true) && !sorted[i].type.contains("Isi", true)
-                    val computed = if (isCurrentPayment) {
-                        nextOlder.balance!! - sorted[i].amount
-                    } else {
-                        nextOlder.balance!! + sorted[i].amount
-                    }
-                    if (computed in 0L..100_000_000L) {
-                        sorted[i] = sorted[i].copy(balance = computed)
+            // Forward propagation (older to newer) if latest balance was null
+            for (i in (sorted.size - 2) downTo 0) {
+                if (sorted[i].balance == null) {
+                    val nextOlder = sorted[i + 1]
+                    val olderBal = nextOlder.balance
+                    if (olderBal != null) {
+                        val isCurrentPayment = !sorted[i].type.contains("Top", true) && !sorted[i].type.contains("Isi", true)
+                        val computed = if (isCurrentPayment) {
+                            olderBal - sorted[i].amount
+                        } else {
+                            olderBal + sorted[i].amount
+                        }
+                        if (computed in 0L..100_000_000L) {
+                            sorted[i] = sorted[i].copy(balance = computed)
+                        }
                     }
                 }
             }
