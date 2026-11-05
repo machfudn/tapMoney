@@ -268,6 +268,20 @@ fun MainScreen(
                     if (history.isNotEmpty()) {
                         val displayHistory = if (showAllHistory) history else history.take(3)
                         val isEn = resolveIsEnglish(settings.appLanguage)
+                        val countText = if (isEn) {
+                            if (showAllHistory || history.size <= 3) "Showing ${history.size} transactions" else "Showing 3 of ${history.size} transactions"
+                        } else {
+                            if (showAllHistory || history.size <= 3) "Menampilkan ${history.size} riwayat transaksi" else "Menampilkan 3 dari ${history.size} riwayat transaksi"
+                        }
+                        item {
+                            Text(
+                                text = countText,
+                                color = textSubtleColor,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = 2.dp, bottom = 4.dp)
+                            )
+                        }
                         val grouped = groupHistoryByDate(displayHistory, isEn)
                         items(grouped) { group ->
                             HistoryGroupWidget(
@@ -304,8 +318,13 @@ fun MainScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
+                                        val toggleLabel = if (showAllHistory) {
+                                            strings.showLess
+                                        } else {
+                                            "${strings.viewAll} (${history.size})"
+                                        }
                                         Text(
-                                            text = if (showAllHistory) strings.showLess else strings.viewAll,
+                                            text = toggleLabel,
                                             color = textColor,
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.Black
@@ -990,7 +1009,8 @@ fun HistoryGroupWidget(
                                     text = "${strings.endingBalance}${formatRupiah(tx.balance)}",
                                     color = textSubtleColor,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }

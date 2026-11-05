@@ -53,6 +53,23 @@ object AppUpdateChecker {
         }
         return remote.third > current.third
     }
+    fun localizeReleaseNotes(rawNotes: String, isEnglish: Boolean): String {
+        if (rawNotes.isBlank()) return ""
+        val langTag = if (isEnglish) "en" else "id"
+        val regex = Regex("""<!--\s*lang:$langTag\s*-->([\s\S]*?)<!--\s*/lang:$langTag\s*-->""", RegexOption.IGNORE_CASE)
+        val match = regex.find(rawNotes)?.groupValues?.getOrNull(1)?.trim()
+        if (!match.isNullOrBlank()) return match
+
+        val headerPattern = if (isEnglish) {
+            Regex("""(?i)(?:###?\s*(?:🇬🇧|English|Release Notes)[\s\S]*?)(?=###?\s*(?:🇮🇩|Bahasa Indonesia|Ringkasan Rilis|Informasi Berkas|File Information)|$)""")
+        } else {
+            Regex("""(?i)(?:###?\s*(?:🇮🇩|Bahasa Indonesia|Ringkasan Rilis)[\s\S]*?)(?=###?\s*(?:🇬🇧|English|Release Notes|Informasi Berkas|File Information)|$)""")
+        }
+        val headerMatch = headerPattern.find(rawNotes)?.value?.trim()
+        if (!headerMatch.isNullOrBlank()) return headerMatch
+
+        return rawNotes.trim()
+    }
 
     fun parseReleaseJson(json: String, currentVersion: String): AppReleaseInfo? {
         val tagRegex = Regex(""""tag_name"\s*:\s*"([^"]+)"""")

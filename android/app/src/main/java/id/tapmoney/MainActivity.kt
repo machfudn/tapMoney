@@ -34,6 +34,9 @@ import id.tapmoney.ui.resolveIsEnglish
 import id.tapmoney.util.BluetoothPrinter
 import id.tapmoney.util.ReceiptExporter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -43,7 +46,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     private lateinit var db: CardDatabase
     private var toneGenerator: ToneGenerator? = null
     private var textToSpeech: TextToSpeech? = null
-
+    private var nfcTickerJob: Job? = null
     private var currentCardState = mutableStateOf<CardBalanceResult?>(null)
     private var savedCardsState = mutableStateOf<List<StoredCard>>(emptyList())
     private var locationAliasesState = mutableStateOf<Map<String, String>>(emptyMap())
@@ -68,7 +71,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
         loadSettings()
         loadData()
-        checkNfcStatus()
+        checkNfcStatus(force = true)
 
         setContent {
             val appStrings = getAppStrings(settingsState.value.appLanguage, this)
@@ -148,44 +151,51 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     private val nfcStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == NfcAdapter.ACTION_ADAPTER_STATE_CHANGED) {
-                val state = intent.getIntExtra(NfcAdapter.EXTRA_ADAPTER_STATE, NfcAdapter.STATE_OFF)
-                val strings = getAppStrings(settingsState.value.appLanguage, this@MainActivity)
-                when (state) {
-                    NfcAdapter.STATE_ON -> {
-                        nfcEnabledState.value = true
-                        statusMessageState.value = strings.statusSensorReady
-                        enableReaderMode()
-                    }
-                    NfcAdapter.STATE_OFF, NfcAdapter.STATE_TURNING_OFF -> {
-                        nfcEnabledState.value = false
-                        statusMessageState.value = strings.statusNfcDisabled
-                        disableReaderMode()
-                    }
-                }
+                checkNfcStatus()
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        try {
+            val filter = IntentFilter(NfcAdapter.ACTION_ADAPTER_STATE_CHANGED)
+            ContextCompat.registerReceiver(this, nfcStateReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
+        } catch (_: Exception) {}
+        checkNfcStatus(force = true)
+        startNfcStatusTicker()
     }
 
     override fun onResume() {
         super.onResume()
         checkNfcStatus()
         enableReaderMode()
-        try {
-            val filter = IntentFilter(NfcAdapter.ACTION_ADAPTER_STATE_CHANGED)
-            ContextCompat.registerReceiver(this, nfcStateReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
-        } catch (_: Exception) {}
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            checkNfcStatus()
+            enableReaderMode()
+        }
     }
 
     override fun onPause() {
         super.onPause()
+        disableReaderMode()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        stopNfcStatusTicker()
         try {
             unregisterReceiver(nfcStateReceiver)
         } catch (_: Exception) {}
-        disableReaderMode()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        stopNfcStatusTicker()
         try {
             toneGenerator?.release()
             textToSpeech?.stop()
@@ -193,19 +203,44 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         } catch (ignored: Exception) {}
     }
 
-    private fun checkNfcStatus() {
-        val adapter = nfcAdapter
-        val strings = getAppStrings(settingsState.value.appLanguage, this)
-        nfcEnabledState.value = adapter != null && adapter.isEnabled
-        if (adapter == null) {
-            statusMessageState.value = strings.statusNoHardware
-        } else if (!adapter.isEnabled) {
-            statusMessageState.value = strings.statusNfcDisabled
-        } else {
-            statusMessageState.value = strings.statusSensorReady
+    private fun startNfcStatusTicker() {
+        nfcTickerJob?.cancel()
+        nfcTickerJob = lifecycleScope.launch(Dispatchers.Main) {
+            while (isActive) {
+                delay(1000L)
+                checkNfcStatus()
+            }
         }
     }
 
+    private fun stopNfcStatusTicker() {
+        nfcTickerJob?.cancel()
+        nfcTickerJob = null
+    }
+
+    private fun checkNfcStatus(force: Boolean = false) {
+        val adapter = nfcAdapter ?: NfcAdapter.getDefaultAdapter(this)?.also { nfcAdapter = it }
+        val strings = getAppStrings(settingsState.value.appLanguage, this)
+        val isEnabled = adapter != null && adapter.isEnabled
+        val previousEnabled = nfcEnabledState.value
+
+        if (adapter == null) {
+            nfcEnabledState.value = false
+            statusMessageState.value = strings.statusNoHardware
+            return
+        }
+
+        if (force || previousEnabled != isEnabled) {
+            nfcEnabledState.value = isEnabled
+            if (isEnabled) {
+                statusMessageState.value = strings.statusSensorReady
+                enableReaderMode()
+            } else {
+                statusMessageState.value = strings.statusNfcDisabled
+                disableReaderMode()
+            }
+        }
+    }
     private fun enableReaderMode() {
         val adapter = nfcAdapter ?: return
         if (!adapter.isEnabled) return

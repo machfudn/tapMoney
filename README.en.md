@@ -4,15 +4,18 @@
 
 # Tap Money
 
+[![Download Release APK](https://img.shields.io/badge/Download-Release%20APK-success?logo=android&logoColor=white)](https://github.com/machfudn/tapMoney/releases/latest)
 [![Android CI Release](https://github.com/machfudn/tapMoney/actions/workflows/build-release-apk.yml/badge.svg)](https://github.com/machfudn/tapMoney/actions/workflows/build-release-apk.yml)
-[![Version](https://img.shields.io/badge/version-v1.1.12-blue.svg)](#)
+[![Version](https://img.shields.io/badge/version-v1.1.13-blue.svg)](https://github.com/machfudn/tapMoney/releases/latest)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-purple.svg?logo=kotlin)](#)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2024.10.01-4285F4.svg?logo=android)](#)
 [![Target SDK](https://img.shields.io/badge/targetSdk-35%20(Android%2015)-green.svg)](#)
 [![Min SDK](https://img.shields.io/badge/minSdk-24%20(Android%207.0)-orange.svg)](#)
-[![License](https://img.shields.io/badge/license-MIT-black.svg)](#)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 A pure native Android (100% Kotlin & Jetpack Compose) electronic money NFC reader for extracting real stored balance, physical card PAN, and on-chip mutation histories.
+
+> 📲 **Download Ready-to-Use Release APK**: Grab the latest official signed release package on [GitHub Releases](https://github.com/machfudn/tapMoney/releases/latest). Install directly on your physical Android device without compiling source code.
 
 ---
 
@@ -25,12 +28,12 @@ A pure native Android (100% Kotlin & Jetpack Compose) electronic money NFC reade
 ## Table of Contents
 - [Overview](#overview)
 - [Key Features](#key-features)
-- [Supported Cards](#supported-cards)
+- [Supported Cards & Segmentation](#supported-cards--segmentation)
 - [Architecture & Source Tree](#architecture--source-tree)
 - [Technical Specifications & APDU Decoding](#technical-specifications--apdu-decoding)
-- [Prerequisites & Development Setup](#prerequisites--development-setup)
-- [Build & Run](#build--run)
-- [Release Build & APK Signing](#release-build--apk-signing)
+- [Device Requirements](#device-requirements)
+- [Download & APK Installation](#download--apk-installation)
+- [How to Use](#how-to-use)
 - [Author](#author)
 
 ---
@@ -153,9 +156,13 @@ tapMoney/
 │   │   └── build.gradle                         # App Gradle build configuration (Compose, Java 21)
 │   ├── build.gradle                             # Root project buildscript (Kotlin 2.0.21, AGP 8.13.0)
 │   ├── settings.gradle                          # Gradle settings
-│   ├── version.properties                       # Dynamic release version config (v1.1.12 / 10112)
-│   ├── RELEASE_NOTES.md                         # Release notes for v1.1.12
+│   ├── version.properties                       # Dynamic release version config (v1.1.13 / 10113)
+│   ├── RELEASE_NOTES.md                         # Release notes for v1.1.13
 │   └── gradle.properties                        # JVM options and Kotlin compiler flags
+├── tests/
+│   ├── AppUpdateCheckerTest.kt                  # Bilingual update parser & semver unit tests
+│   └── FlazzParserTest.kt                       # Card engine APDU parsing unit test suite
+├── LICENSE                                      # GNU General Public License v3.0
 ├── README.md                                    # Indonesian Documentation
 └── README.en.md                                 # English Documentation
 ```
@@ -197,55 +204,40 @@ Executes *Read Without Encryption* command (`0x06`) targeting Service Code `0x22
 
 ---
 
-## Prerequisites & Development Setup
+## Device Requirements
 
-- **Android Studio**: Android Studio Koala (2024.1.1) or higher.
-- **JDK**: Java Development Kit 21 (LTS).
-- **Target OS**: Android 7.0 (API 24) through Android 15 (API 35).
-- **Hardware**: NFC-enabled Android physical smartphone.
-
----
-
-## Build & Run
-
-### 1. Navigate to Android Workspace
-```bash
-cd tapMoney/android
-```
-
-### 2. Compile Debug APK
-```bash
-./gradlew assembleDebug
-```
-The resulting APK will be saved at:
-```text
-android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-### 3. Install to Connected Device
-Ensure USB Debugging is enabled on your Android smartphone:
-```bash
-./gradlew installDebug
-```
+- **Operating System**: Android 7.0 (Nougat / API 24) through Android 15 (Vanilla Ice Cream / API 35).
+- **Hardware**: Physical Android smartphone with an active NFC chip and antenna.
+- **Application Permissions**:
+  - `android.permission.NFC`: Duplex hardware NFC transceiver access for ISO-DEP & FeliCa smartcards.
+  - `android.permission.VIBRATE`: Haptic confirmation on successful card reads or read failures.
+  - `android.permission.BLUETOOTH` / `BLUETOOTH_CONNECT` / `BLUETOOTH_SCAN`: Optional Bluetooth access for pairing and printing receipts on 58mm thermal printers.
 
 ---
 
-## Release Build & APK Signing
+## Download & APK Installation
 
-Compile the release variant:
-```bash
-./gradlew assembleRelease
-```
+1. **Download Official APK**: Visit [GitHub Releases](https://github.com/machfudn/tapMoney/releases/latest) and download the latest `TapMoney-v*.apk` package.
+2. **Install on Device**:
+   - Open the downloaded APK file from notification drawer or File Manager.
+   - If prompted by Android security settings regarding sideloaded packages, tap **Settings** and enable **Allow from this source**.
+   - Tap **Install** and wait for installation to finish.
+3. **Release Integrity & Security**:
+   - Every official release APK is built, tested, and cryptographically signed automatically by our secure GitHub Actions CI/CD pipeline ([`build-release-apk.yml`](.github/workflows/build-release-apk.yml)).
+   - Zero trackers, no advertisements, and 100% offline-first privacy without account login.
 
-Sign the output package using `apksigner`:
-```bash
-apksigner sign --ks release.keystore --ks-pass pass:YOUR_PASSWORD --out TapMoney-v1.1.12.apk android/app/build/outputs/apk/release/app-release-unsigned.apk
-```
+---
 
-Verify signature integrity:
-```bash
-apksigner verify --verbose TapMoney-v1.1.12.apk
-```
+## How to Use
+
+1. **Enable NFC**: Open Android Quick Settings or navigate to *Settings > Connected devices > Connection preferences > NFC*, and turn on the **NFC** toggle.
+2. **Launch Application**: Open the **Tap Money** app.
+3. **Tap Card**: Hold your electronic money smartcard (Flazz, e-Money, TapCash, Brizzi, JakCard, KMT, etc.) against the back of your smartphone (the NFC antenna coil is typically located near the rear camera module or top center).
+4. **Hold Steady**: Hold the card in place for 1–2 seconds until the device vibrates with confirmation. Real balance, physical 16-digit PAN, issuer, and on-chip mutation records will instantly populate the screen.
+5. **Save, Export, or Print**:
+   - Assign custom terminal aliases for recognized station or merchant points.
+   - Save scanned cards to the offline local database for future reference.
+   - Export card summaries and mutation records as Neobrutalist A4 PDF documents or print physical receipts via Bluetooth 58mm thermal printer.
 
 ---
 
