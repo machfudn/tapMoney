@@ -6,7 +6,7 @@
 
 [![Download Release APK](https://img.shields.io/badge/Download-Release%20APK-success?logo=android&logoColor=white)](https://github.com/machfudn/tapMoney/releases/latest)
 [![Android CI Release](https://github.com/machfudn/tapMoney/actions/workflows/build-release-apk.yml/badge.svg)](https://github.com/machfudn/tapMoney/actions/workflows/build-release-apk.yml)
-[![Version](https://img.shields.io/badge/version-v1.1.12-blue.svg)](https://github.com/machfudn/tapMoney/releases/latest)
+[![Version](https://img.shields.io/badge/version-v1.1.13-blue.svg)](https://github.com/machfudn/tapMoney/releases/latest)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-purple.svg?logo=kotlin)](#)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2024.10.01-4285F4.svg?logo=android)](#)
 [![Target SDK](https://img.shields.io/badge/targetSdk-35%20(Android%2015)-green.svg)](#)
@@ -156,10 +156,11 @@ tapMoney/
 │   │   └── build.gradle                         # App Gradle build configuration (Compose, Java 21)
 │   ├── build.gradle                             # Root project buildscript (Kotlin 2.0.21, AGP 8.13.0)
 │   ├── settings.gradle                          # Gradle settings
-│   ├── version.properties                       # Dynamic release version config (v1.1.12 / 10112)
-│   ├── RELEASE_NOTES.md                         # Release notes for v1.1.12
+│   ├── version.properties                       # Dynamic release version config (v1.1.13 / 10113)
+│   ├── RELEASE_NOTES.md                         # Release notes for v1.1.13
 │   └── gradle.properties                        # JVM options and Kotlin compiler flags
 ├── tests/
+│   ├── AppUpdateCheckerTest.kt                  # Bilingual update parser & semver unit tests
 │   └── FlazzParserTest.kt                       # Card engine APDU parsing unit test suite
 ├── LICENSE                                      # GNU General Public License v3.0
 ├── README.md                                    # Indonesian Documentation

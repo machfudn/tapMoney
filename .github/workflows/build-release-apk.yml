@@ -166,13 +166,13 @@ jobs:
           output_file="release_body.md"
           echo "## TapMoney v${VERSION_NAME}" > "$output_file"
           echo "" >> "$output_file"
-          echo "Rilis resmi aplikasi Tap Money untuk Android (Build Code: ${VERSION_CODE})." >> "$output_file"
+          echo "Rilis resmi aplikasi Tap Money untuk Android (Build Code: ${VERSION_CODE}) / Official Tap Money release for Android." >> "$output_file"
           echo "" >> "$output_file"
-          echo "### Ringkasan Rilis" >> "$output_file"
 
           if [[ -f "$body_file" && -s "$body_file" ]]; then
             cat "$body_file" >> "$output_file"
           else
+            echo "### Ringkasan Rilis" >> "$output_file"
             echo "* Pemindaian kartu uang elektronik NFC (Mandiri e-Money, BCA Flazz, BRI Brizzi, BNI TapCash, KMT Commuter Line, MegaCash)." >> "$output_file"
             echo "* Deteksi status koneksi dan adapter NFC secara langsung." >> "$output_file"
             echo "* Dukungan tema tampilan Sistem, Terang, dan Gelap." >> "$output_file"
@@ -181,12 +181,11 @@ jobs:
 
           echo "" >> "$output_file"
           sha256_val=$(cat "TapMoney-v${VERSION_NAME}.apk.sha256" 2>/dev/null || sha256sum "TapMoney-v${VERSION_NAME}.apk" | awk '{print $1}')
-          echo "### Informasi Berkas" >> "$output_file"
-          echo "* Nama berkas: \`TapMoney-v${VERSION_NAME}.apk\`" >> "$output_file"
-          echo "* Kode versi: \`${VERSION_CODE}\`" >> "$output_file"
+          echo "### Informasi Berkas / File Information" >> "$output_file"
+          echo "* File: \`TapMoney-v${VERSION_NAME}.apk\`" >> "$output_file"
+          echo "* Version Code: \`${VERSION_CODE}\`" >> "$output_file"
           echo "* Commit SHA: \`${{ github.sha }}\`" >> "$output_file"
           echo "* SHA-256: \`${sha256_val}\`" >> "$output_file"
-
       - name: Publish GitHub Release
         if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
         uses: softprops/action-gh-release@v2
