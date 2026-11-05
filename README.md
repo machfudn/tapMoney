@@ -11,7 +11,7 @@
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2024.10.01-4285F4.svg?logo=android)](#)
 [![Target SDK](https://img.shields.io/badge/targetSdk-35%20(Android%2015)-green.svg)](#)
 [![Min SDK](https://img.shields.io/badge/minSdk-24%20(Android%207.0)-orange.svg)](#)
-[![License](https://img.shields.io/badge/license-MIT-black.svg)](#)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 Aplikasi Android native murni (100% Kotlin & Jetpack Compose) untuk membaca saldo riil, nomor kartu fisik (PAN), dan mutasi transaksi chip uang elektronik berbasis NFC (ISO-DEP & FeliCa).
 
@@ -161,6 +161,7 @@ tapMoney/
 │   └── gradle.properties                        # Optimasi JVM & compiler arguments
 ├── tests/
 │   └── FlazzParserTest.kt                       # Suite unit test parsing APDU & engine kartu
+├── LICENSE                                      # GNU General Public License v3.0
 ├── README.md                                    # Dokumentasi Bahasa Indonesia
 └── README.en.md                                 # English Documentation
 ```

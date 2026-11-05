@@ -11,7 +11,7 @@
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2024.10.01-4285F4.svg?logo=android)](#)
 [![Target SDK](https://img.shields.io/badge/targetSdk-35%20(Android%2015)-green.svg)](#)
 [![Min SDK](https://img.shields.io/badge/minSdk-24%20(Android%207.0)-orange.svg)](#)
-[![License](https://img.shields.io/badge/license-MIT-black.svg)](#)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 A pure native Android (100% Kotlin & Jetpack Compose) electronic money NFC reader for extracting real stored balance, physical card PAN, and on-chip mutation histories.
 
@@ -161,6 +161,7 @@ tapMoney/
 │   └── gradle.properties                        # JVM options and Kotlin compiler flags
 ├── tests/
 │   └── FlazzParserTest.kt                       # Card engine APDU parsing unit test suite
+├── LICENSE                                      # GNU General Public License v3.0
 ├── README.md                                    # Indonesian Documentation
 └── README.en.md                                 # English Documentation
 ```
