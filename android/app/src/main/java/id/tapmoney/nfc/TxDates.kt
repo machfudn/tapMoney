@@ -63,7 +63,9 @@ object TxDates {
             val cal = Calendar.getInstance(JAKARTA)
             cal.set(1980, 0, 1, 0, 0, 0)
             cal.set(Calendar.MILLISECOND, 0)
-            cal.add(Calendar.SECOND, seconds.toInt())
+            cal.timeInMillis += seconds * 1000L
+            val year = cal.get(Calendar.YEAR)
+            if (year !in 2010..2050) return null
             cal.time
         } catch (_: Exception) {
             null

@@ -176,6 +176,10 @@ class FlazzParser : EmoneyParser {
             val cmdCccc = byteArrayOf(0x00, 0x00, 0x40, 0x0B, 0x00, 0x00, 0x04, 0x02, 0x00, 0x00)
             channel.transceive(cmdCccc)
         } catch (_: Exception) {}
+        try {
+            val cmdUuuu = byteArrayOf(0x00, 0xA4.toByte(), 0x01, 0x00, 0x02, 0x02, 0x00)
+            channel.transceive(cmdUuuu)
+        } catch (_: Exception) {}
 
         val history = mutableListOf<CardTransactionItem>()
 
@@ -189,8 +193,8 @@ class FlazzParser : EmoneyParser {
                 for (chunk in 0 until 16) {
                     cmd15[3] = (chunk * 15).toByte()
                     val resp = channel.transceive(cmd15)
-                    if (resp.isSuccess() && resp.size >= 17) {
-                        sfiBuffer.addAll(resp.sliceArray(0 until 15).toList())
+                    if (resp.isSuccess() && resp.size > 2) {
+                        sfiBuffer.addAll(resp.sliceArray(0 until resp.size - 2).toList())
                     } else {
                         break
                     }
@@ -205,6 +209,19 @@ class FlazzParser : EmoneyParser {
                         if (offset > 240) break
                         cmd60[3] = offset.toByte()
                         val resp = channel.transceive(cmd60)
+                        if (resp.isSuccess() && resp.size >= 62) {
+                            records.add(resp.sliceArray(0 until 60))
+                        } else {
+                            break
+                        }
+                    }
+                }
+
+                if (records.isEmpty()) {
+                    val sfiP2 = ((sfi and 0x1F) shl 3) or 4
+                    for (rec in 1..16) {
+                        val cmdRec = byteArrayOf(0x00, 0xB2.toByte(), rec.toByte(), sfiP2.toByte(), 0x00)
+                        val resp = channel.transceive(cmdRec)
                         if (resp.isSuccess() && resp.size >= 62) {
                             records.add(resp.sliceArray(0 until 60))
                         } else {
@@ -240,7 +257,7 @@ class FlazzParser : EmoneyParser {
                     else -> null
                 }
 
-                val dateObj = TxDates.parseFlazzSeconds(timeSecs) ?: Date(timeSecs * 1000L)
+                val dateObj = TxDates.parseFlazzSeconds(timeSecs) ?: continue
                 val locBytes = record.sliceArray(30..37)
                 val terminal = cleanTerminalId(locBytes)
 
@@ -314,7 +331,7 @@ class FlazzParser : EmoneyParser {
                             }
                         }
 
-                        val dateObj = TxDates.parseFlazzSeconds(timeSecs) ?: Date(timeSecs * 1000L)
+                        val dateObj = TxDates.parseFlazzSeconds(timeSecs) ?: continue
                         val tidBytes = payload.sliceArray(14..21)
                         val terminal = cleanTerminalId(tidBytes)
 
