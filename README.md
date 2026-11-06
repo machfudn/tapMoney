@@ -229,6 +229,12 @@ Membaca block memory tanpa enkripsi (*Read Without Encryption*) pada Service Cod
    - Seluruh rilis APK resmi dikompilasi, diuji, dan ditandatangani secara otomatis melalui pipeline aman GitHub Actions CI/CD ([`build-release-apk.yml`](.github/workflows/build-release-apk.yml)).
    - Bebas pelacak (*no trackers*), bebas iklan, dan berfungsi 100% offline tanpa login.
 
+4. **Pemberitahuan Google Play Protect (Pemindaian Aplikasi Disarankan)**:
+   - **Penyebab**: Karena berkas APK diunduh langsung di luar Google Play Store dan memiliki hash binary baru yang belum pernah dilihat database cloud Play Protect, sistem akan menampilkan dialog *"Pemindaian aplikasi disarankan"*. Hal ini normal untuk aplikasi *open-source* yang di-sideload.
+   - **Opsi A (Disarankan)**: Ketuk **Pindai aplikasi**. Google akan memindai berkas di cloud (5–15 detik), memverifikasi bahwa aplikasi 100% aman (*clean*), dan tombol instalasi akan terbuka. Setelah beberapa pemindaian, Play Protect akan otomatis mengenali rilis ini di perangkat lain.
+   - **Opsi B (Instal Langsung Tanpa Memindai)**: Ketuk dropdown **Detail selengkapnya ∨**, lalu ketuk **Tetap instal (tidak aman)** / **Instal tanpa memindai**.
+   - **Tips Pengembang / Tester**: Jika sering memperbarui APK dan ingin dialog ini tidak muncul terus, buka aplikasi *Google Play Store > Foto Profil > Play Protect > ikon gerigi ⚙️*, lalu matikan sakelar *"Tingkatkan deteksi aplikasi berbahaya (Kirim aplikasi yang tidak dikenal ke Google)"* (tetap biarkan sakelar utama *"Pindai aplikasi dengan Play Protect"* aktif).
+
 ---
 
 ## Petunjuk Penggunaan

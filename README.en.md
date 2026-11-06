@@ -226,6 +226,12 @@ Executes *Read Without Encryption* command (`0x06`) targeting Service Code `0x22
    - Every official release APK is built, tested, and cryptographically signed automatically by our secure GitHub Actions CI/CD pipeline ([`build-release-apk.yml`](.github/workflows/build-release-apk.yml)).
    - Zero trackers, no advertisements, and 100% offline-first privacy without account login.
 
+4. **Google Play Protect Notice (App Scan Recommended)**:
+   - **Why it appears**: Because the APK is downloaded directly outside Google Play Store with a fresh binary checksum, Play Protect displays *"App scan recommended: Play Protect hasn't seen this app before"*. This is standard behavior for sideloaded open-source APKs.
+   - **Option A (Recommended)**: Tap **Scan app**. Google will analyze the APK in the cloud (5–15 seconds), verify it is completely clean, and allow installation. Once verified, other devices will install smoothly.
+   - **Option B (Direct Install Without Scanning)**: Tap **More details ∨**, then tap **Install anyway**.
+   - **Tester / Developer Tip**: If you frequently test and update builds and prefer not to see this prompt repeatedly, open *Google Play Store > Profile > Play Protect > Settings ⚙️*, and toggle off *"Improve harmful app detection (Send unknown apps to Google)"* while leaving the main scan switch on.
+
 ---
 
 ## How to Use
