@@ -152,6 +152,12 @@ interface AppStrings {
     val fileInfoTitle: String
     val checksumLabel: String
     val checksumCopiedToast: String
+    val stableChannel: String
+    val betaChannel: String
+    val noBetaReleaseAvailable: String
+    val noStableReleaseAvailable: String
+    val preReleaseBadge: String
+    val stableBadge: String
 }
 
 object AppStringsId : AppStrings {
@@ -302,6 +308,12 @@ object AppStringsId : AppStrings {
     override val fileInfoTitle = "Informasi Berkas"
     override val checksumLabel = "Checksum (SHA-256)"
     override val checksumCopiedToast = "Checksum disalin ke papan klip"
+    override val stableChannel = "Rilis Stabil"
+    override val betaChannel = "Rilis Beta (Pengujian)"
+    override val noBetaReleaseAvailable = "Belum ada rilis beta pengujian di repositori ini."
+    override val noStableReleaseAvailable = "Belum ada rilis stabil di repositori ini."
+    override val preReleaseBadge = "BETA / PENGUJIAN"
+    override val stableBadge = "STABIL / TERBARU"
 }
 
 object AppStringsEn : AppStrings {
@@ -452,6 +464,12 @@ object AppStringsEn : AppStrings {
     override val fileInfoTitle = "File Information"
     override val checksumLabel = "Checksum (SHA-256)"
     override val checksumCopiedToast = "Checksum copied to clipboard"
+    override val stableChannel = "Stable Release"
+    override val betaChannel = "Beta Release (Testing)"
+    override val noBetaReleaseAvailable = "No beta pre-release available in this repository."
+    override val noStableReleaseAvailable = "No stable release available in this repository."
+    override val preReleaseBadge = "BETA / PRE-RELEASE"
+    override val stableBadge = "STABLE / LATEST"
 }
 
 class JsonBackedAppStrings(
@@ -607,6 +625,12 @@ class JsonBackedAppStrings(
     override val fileInfoTitle get() = get("fileInfoTitle", fallback.fileInfoTitle)
     override val checksumLabel get() = get("checksumLabel", fallback.checksumLabel)
     override val checksumCopiedToast get() = get("checksumCopiedToast", fallback.checksumCopiedToast)
+    override val stableChannel get() = get("stableChannel", fallback.stableChannel)
+    override val betaChannel get() = get("betaChannel", fallback.betaChannel)
+    override val noBetaReleaseAvailable get() = get("noBetaReleaseAvailable", fallback.noBetaReleaseAvailable)
+    override val noStableReleaseAvailable get() = get("noStableReleaseAvailable", fallback.noStableReleaseAvailable)
+    override val preReleaseBadge get() = get("preReleaseBadge", fallback.preReleaseBadge)
+    override val stableBadge get() = get("stableBadge", fallback.stableBadge)
 }
 
 object JsonI18nLoader {

@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -35,6 +36,7 @@ import id.tapmoney.model.UserSettings
 import id.tapmoney.update.AppReleaseInfo
 import id.tapmoney.update.AppUpdateChecker
 import id.tapmoney.update.ApkDownloader
+import id.tapmoney.update.DualReleaseResult
 import id.tapmoney.update.UpdateCheckResult
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -562,6 +564,20 @@ fun SettingsScreen(
     }
 
     when (val res = updateResultDialog) {
+        is UpdateCheckResult.Success -> {
+            DualChannelUpdateDialog(
+                dual = res.dual,
+                settings = settings,
+                isDark = isDark,
+                surfaceColor = surfaceColor,
+                surfaceAltColor = surfaceAltColor,
+                borderColor = borderColor,
+                textColor = textColor,
+                textSubtleColor = textSubtleColor,
+                headerColor = headerColor,
+                onDismiss = { updateResultDialog = null }
+            )
+        }
         is UpdateCheckResult.UpdateAvailable -> {
             val info = res.info
             AlertDialog(
@@ -1243,4 +1259,409 @@ private fun ThemeSelector(
             }
         }
     }
+}
+
+@Composable
+private fun DualChannelUpdateDialog(
+    dual: DualReleaseResult,
+    settings: UserSettings,
+    isDark: Boolean,
+    surfaceColor: Color,
+    surfaceAltColor: Color,
+    borderColor: Color,
+    textColor: Color,
+    textSubtleColor: Color,
+    headerColor: Color,
+    onDismiss: () -> Unit
+) {
+    val strings = LocalAppStrings.current
+    val context = LocalContext.current
+    val isCurrentBeta = BuildConfig.VERSION_NAME.contains("beta", ignoreCase = true) ||
+            BuildConfig.VERSION_NAME.contains("rc", ignoreCase = true)
+
+    val defaultTab = if ((isCurrentBeta && dual.beta != null) || (dual.beta?.isNewer == true && dual.stable?.isNewer != true)) 1 else 0
+    var selectedTab by remember { mutableStateOf(defaultTab) }
+    val activeRelease = if (selectedTab == 0) dual.stable else dual.beta
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = surfaceColor,
+        titleContentColor = textColor,
+        textContentColor = textSubtleColor,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp)
+            .border(2.dp, borderColor, RoundedCornerShape(12.dp)),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.NewReleases,
+                    contentDescription = null,
+                    tint = if (dual.hasAnyUpdate) NeoColors.Green else headerColor,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = strings.secAppUpdate,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 18.sp,
+                    color = textColor
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(surfaceAltColor)
+                        .border(1.5.dp, borderColor, RoundedCornerShape(8.dp))
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (selectedTab == 0) headerColor else Color.Transparent)
+                            .clickable { selectedTab = 0 }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = strings.stableChannel,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (selectedTab == 0) Color.White else textColor
+                            )
+                            if (dual.stable?.isNewer == true) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .background(NeoColors.Green, CircleShape)
+                                )
+                            }
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (selectedTab == 1) headerColor else Color.Transparent)
+                            .clickable { selectedTab = 1 }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = strings.betaChannel,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (selectedTab == 1) Color.White else textColor
+                            )
+                            if (dual.beta?.isNewer == true) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .background(NeoColors.Yellow, CircleShape)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (activeRelease != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(surfaceAltColor)
+                            .border(1.dp, borderColor, RoundedCornerShape(6.dp))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "${strings.currentVersionLabel}: v${BuildConfig.VERSION_NAME}",
+                                fontSize = 11.sp,
+                                color = textSubtleColor,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "${strings.latestVersionLabel}: v${activeRelease.versionName}",
+                                fontSize = 13.sp,
+                                color = headerColor,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+
+                        val badgeText = if (activeRelease.isNewer) {
+                            strings.updateAvailableTitle
+                        } else {
+                            strings.updateUpToDateTitle
+                        }
+                        val badgeBg = if (activeRelease.isNewer) NeoColors.Green else borderColor.copy(alpha = 0.2f)
+                        val badgeFg = if (activeRelease.isNewer) Color.Black else textColor
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(badgeBg)
+                                .border(1.dp, borderColor, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = badgeText,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                color = badgeFg
+                            )
+                        }
+                    }
+
+                    if (activeRelease.apkSize != null || !activeRelease.checksum.isNullOrBlank()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(surfaceAltColor)
+                                .border(1.dp, borderColor, RoundedCornerShape(6.dp))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = strings.fileInfoTitle,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textColor
+                                )
+                                if (activeRelease.apkSize != null) {
+                                    val mbSize = activeRelease.apkSize / (1024.0 * 1024.0)
+                                    Text(
+                                        text = String.format(Locale.US, "%.1f MB", mbSize),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = textColor
+                                    )
+                                }
+                            }
+
+                            if (!activeRelease.checksum.isNullOrBlank()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                            val clip = ClipData.newPlainText("SHA256", activeRelease.checksum)
+                                            clipboard?.setPrimaryClip(clip)
+                                            Toast.makeText(context, strings.checksumCopiedToast, Toast.LENGTH_SHORT).show()
+                                        }
+                                        .padding(vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = strings.checksumLabel,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = textSubtleColor
+                                        )
+                                        Text(
+                                            text = activeRelease.checksum,
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            color = textColor,
+                                            lineHeight = 12.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "Copy Checksum",
+                                        tint = textSubtleColor,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    val localizedNotes = remember(activeRelease.releaseNotes, settings.appLanguage) {
+                        AppUpdateChecker.localizeReleaseNotes(
+                            rawNotes = activeRelease.releaseNotes,
+                            isEnglish = resolveIsEnglish(settings.appLanguage)
+                        )
+                    }
+                    if (localizedNotes.isNotBlank()) {
+                        Text(
+                            text = strings.changelogHeader,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = textColor
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 160.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(surfaceAltColor)
+                                .border(1.dp, borderColor.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                .verticalScroll(rememberScrollState())
+                                .padding(8.dp)
+                        ) {
+                            MarkdownContent(
+                                markdown = localizedNotes,
+                                textColor = textColor,
+                                textSubtleColor = textSubtleColor,
+                                headerColor = headerColor,
+                                surfaceColor = surfaceColor
+                            )
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(surfaceAltColor)
+                            .border(1.dp, borderColor, RoundedCornerShape(6.dp))
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (selectedTab == 1) strings.noBetaReleaseAvailable else strings.noStableReleaseAvailable,
+                            fontSize = 12.sp,
+                            color = textSubtleColor,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.buttonColors(containerColor = surfaceAltColor),
+                        shape = RoundedCornerShape(6.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = strings.cancel,
+                            color = textColor,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    if (activeRelease?.downloadUrl != null) {
+                        Button(
+                            onClick = {
+                                val apkName = activeRelease.apkName ?: "TapMoney-${activeRelease.versionName}.apk"
+                                val downloadId = ApkDownloader.downloadApk(
+                                    context = context,
+                                    downloadUrl = activeRelease.downloadUrl,
+                                    apkFileName = apkName
+                                )
+                                if (downloadId != null) {
+                                    Toast.makeText(context, strings.downloadStartedToast, Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, strings.downloadFailedToast, Toast.LENGTH_SHORT).show()
+                                }
+                                onDismiss()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (activeRelease.isNewer) NeoColors.Green else headerColor
+                            ),
+                            shape = RoundedCornerShape(6.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor),
+                            modifier = Modifier.weight(1.3f)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = null,
+                                    tint = if (activeRelease.isNewer) Color.Black else Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = if (activeRelease.isNewer) strings.updateButton else strings.downloadApkButton,
+                                    color = if (activeRelease.isNewer) Color.Black else Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (activeRelease != null && activeRelease.htmlUrl.isNotBlank()) {
+                    TextButton(
+                        onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(activeRelease.htmlUrl))
+                                context.startActivity(intent)
+                            } catch (_: Exception) {}
+                            onDismiss()
+                        },
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInBrowser,
+                                contentDescription = null,
+                                tint = textSubtleColor,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = strings.openInBrowserButton,
+                                color = textSubtleColor,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        dismissButton = {}
+    )
 }
