@@ -172,20 +172,18 @@ class FlazzParser : EmoneyParser {
     }
 
     internal fun readHistory(channel: ApduChannel, log: StringBuilder, currentBalance: Long? = null): List<CardTransactionItem> {
+        try {
+            val cmdCccc = byteArrayOf(0x00, 0x00, 0x40, 0x0B, 0x00, 0x00, 0x04, 0x02, 0x00, 0x00)
+            channel.transceive(cmdCccc)
+        } catch (_: Exception) {}
+
         val history = mutableListOf<CardTransactionItem>()
 
         // 1. SFI 4 (0x84) & SFI 5 (0x85) Binary Log Reading
-        try {
+        val sfis = listOf(0x84, 0x85)
+        for (sfi in sfis) {
+            val records = mutableListOf<ByteArray>()
             try {
-                val cmdCccc = byteArrayOf(0x00, 0x00, 0x40, 0x0B, 0x00, 0x00, 0x04, 0x02, 0x00, 0x00)
-                channel.transceive(cmdCccc)
-            } catch (_: Exception) {}
-
-            val sfis = listOf(0x84, 0x85)
-            for (sfi in sfis) {
-                val records = mutableListOf<ByteArray>()
-
-                // Primary: 15-byte slices extraction (eSaldo Info parity, avoids Le 60-byte rejection)
                 val sfiBuffer = mutableListOf<Byte>()
                 val cmd15 = byteArrayOf(0x00, 0xB0.toByte(), sfi.toByte(), 0x00, 0x0F)
                 for (chunk in 0 until 16) {
@@ -198,11 +196,8 @@ class FlazzParser : EmoneyParser {
                     }
                 }
                 val chunked = sfiBuffer.chunked(60).filter { it.size == 60 }
-                for (c in chunked) {
-                    records.add(c.toByteArray())
-                }
+                records.addAll(chunked.map { it.toByteArray() })
 
-                // Fallback: If 15-byte slices yielded nothing, attempt direct 60-byte reading
                 if (records.isEmpty()) {
                     val cmd60 = byteArrayOf(0x00, 0xB0.toByte(), sfi.toByte(), 0x00, 0x3C)
                     for (rec in 0 until 16) {
@@ -217,120 +212,112 @@ class FlazzParser : EmoneyParser {
                         }
                     }
                 }
-
-                for (record in records) {
-                    if (record.size >= 60) {
-                        val isPayment = (record[0].toInt() and 0xFF) == 0x04 ||
-                                (((record[0].toInt() and 0xFF) shl 8) or (record[1].toInt() and 0xFF)) == 1024
-
-                        val amountBytes = byteArrayOf(0x00, record[6], record[7], record[8])
-                        val amount = ByteBuffer.wrap(amountBytes).int.toLong() and 0xFFFFFFFFL
-
-                        // Ending balance decoding from bytes 1..4 (big endian)
-                        val balRaw = ByteBuffer.wrap(record.sliceArray(1..4)).int.toLong() and 0xFFFFFFFFL
-                        val validBalance = when {
-                            isPayment -> if (balRaw in 0L..100_000_000L) balRaw else null
-                            balRaw in amount..100_000_000L -> balRaw
-                            balRaw == 0L && amount in 1L..100_000_000L -> amount
-                            (balRaw + amount) in amount..100_000_000L -> balRaw + amount
-                            else -> null
-                        }
-
-                        val timeBytes = byteArrayOf(record[38], record[39], record[40], record[41])
-                        val timeSecs = ByteBuffer.wrap(timeBytes).int.toLong() and 0xFFFFFFFFL
-                        if (timeSecs <= 0L || amount <= 0L) continue
-
-                        val dateObj = TxDates.parseFlazzSeconds(timeSecs) ?: Date(timeSecs * 1000L)
-
-                        val locBytes = record.sliceArray(30..37)
-                        val terminalIdHex = locBytes.toHexString()
-                        val locationAscii = String(locBytes, Charsets.US_ASCII).replace("\u0000", "").trim()
-                        val terminalName = if (locationAscii.length >= 2) locationAscii else terminalIdHex
-
-                        history.add(
-                            CardTransactionItem(
-                                type = if (isPayment) "Payment" else "Top up",
-                                amount = amount,
-                                balance = validBalance,
-                                date = TxDates.formatDate(dateObj),
-                                time = TxDates.formatTime(dateObj),
-                                terminalId = terminalName
-                            )
-                        )
-                    }
-                }
+            } catch (e: Exception) {
+                log.append("Flazz SFI $sfi err: ${e.message}\n")
             }
-        } catch (e: Exception) {
-            log.append("Flazz file log err: ${e.message}\n")
+
+            for (record in records) {
+                if (record.size < 60) continue
+
+                val timeBytes = byteArrayOf(record[38], record[39], record[40], record[41])
+                val timeSecs = ByteBuffer.wrap(timeBytes).int.toLong() and 0xFFFFFFFFL
+                if (timeSecs <= 0L) continue
+
+                val amtBytes = byteArrayOf(0, record[6], record[7], record[8])
+                val amount = ByteBuffer.wrap(amtBytes).int.toLong() and 0xFFFFFFFFL
+                if (amount <= 0L || amount > 100_000_000L) continue
+
+                val b0 = record[0].toInt() and 0xFF
+                val b1 = record[1].toInt() and 0xFF
+                val typeVal = (b0 shl 8) or b1
+                val isPayment = (b0 == 0x04) || (typeVal == 1024)
+
+                val balRaw = ByteBuffer.wrap(record.sliceArray(1..4)).int.toLong() and 0xFFFFFFFFL
+                val validBalance = when {
+                    isPayment -> if (balRaw in 1L..100_000_000L) balRaw else null
+                    balRaw in amount..100_000_000L -> balRaw
+                    (balRaw + amount) in amount..100_000_000L -> balRaw + amount
+                    else -> null
+                }
+
+                val dateObj = TxDates.parseFlazzSeconds(timeSecs) ?: Date(timeSecs * 1000L)
+                val locBytes = record.sliceArray(30..37)
+                val terminal = cleanTerminalId(locBytes)
+
+                history.add(
+                    CardTransactionItem(
+                        type = if (isPayment) "Payment" else "Top up",
+                        amount = amount,
+                        balance = validBalance,
+                        date = TxDates.formatDate(dateObj),
+                        time = TxDates.formatTime(dateObj),
+                        terminalId = terminal
+                    )
+                )
+            }
         }
 
-        // 2. DESFire Gen 2 circular log reading (combined with SFI history, up to 256 records)
+        // 2. DESFire circular log (File ID 03, up to 256 records)
         try {
-            try {
-                channel.transceive(byteArrayOf(0x90.toByte(), 0x32, 0x03, 0x00, 0x00))
-            } catch (_: Exception) {}
-
-            var consecutiveFailures = 0
-            for (rec in 0 until 256) {
-                val cmd32 = byteArrayOf(0x90.toByte(), 0x32, 0x03, 0x00, 0x01, rec.toByte(), 0x20)
-                try {
-                    var resp = channel.transceive(cmd32)
-                    if (!resp.hasStatus(0x91, 0xAF) && (resp.size < 34 || !resp.isSuccess())) {
-                        val cmdBb = String.format("90BB00000703%02X000001000000", rec).hexToBytes()
-                        resp = channel.transceive(cmdBb)
-                    }
-
-                    if (resp.hasStatus(0x91, 0xAF)) {
-                        var fullPayload = resp.payload()
-                        while (resp.hasStatus(0x91, 0xAF)) {
-                            val nextResp = channel.transceive(byteArrayOf(0x90.toByte(), 0xAF.toByte(), 0x00, 0x00, 0x00))
-                            fullPayload += nextResp.payload()
-                            resp = nextResp
-                            if (!resp.hasStatus(0x91, 0xAF) && !resp.isSuccess()) break
+            val flh3Resp = channel.transceive(byteArrayOf(0x90.toByte(), 0x32, 0x03, 0x00, 0x00))
+            if (flh3Resp.isSuccess()) {
+                var consecutiveFailures = 0
+                for (rec in 0 until 256) {
+                    val cmd32 = byteArrayOf(0x90.toByte(), 0x32, 0x03, 0x00, 0x01, rec.toByte(), 0x20)
+                    try {
+                        var resp = channel.transceive(cmd32)
+                        if (!resp.hasStatus(0x91, 0xAF) && (resp.size < 34 || !resp.isSuccess())) {
+                            val cmdBb = String.format("90BB00000703%02X000001000000", rec).hexToBytes()
+                            resp = channel.transceive(cmdBb)
                         }
-                        resp = fullPayload + byteArrayOf(0x91.toByte(), 0x00.toByte())
-                    }
 
-                    if (resp.size < 34 || !resp.isSuccess()) {
-                        consecutiveFailures++
-                        if (consecutiveFailures >= 3) {
-                            break
+                        if (resp.hasStatus(0x91, 0xAF)) {
+                            var fullPayload = resp.payload()
+                            while (resp.hasStatus(0x91, 0xAF)) {
+                                val nextResp = channel.transceive(byteArrayOf(0x90.toByte(), 0xAF.toByte(), 0x00, 0x00, 0x00))
+                                fullPayload += nextResp.payload()
+                                resp = nextResp
+                                if (!resp.hasStatus(0x91, 0xAF) && !resp.isSuccess()) break
+                            }
+                            resp = fullPayload + byteArrayOf(0x91.toByte(), 0x00.toByte())
                         }
-                        continue
-                    }
-                    consecutiveFailures = 0
 
-                    val hex = resp.toHexString()
-                    val typeHex = hex.substring(0, 2)
-                    val isPayment = typeHex == "04"
-                    val secHex = hex.substring(8, 16)
-                    val sec = secHex.toLongOrNull(16) ?: 0L
-                    val dateObj = if (sec > 0) TxDates.parseFlazzSeconds(sec) else null
-
-                    val amtRaw = hex.substring(2, 8).toLongOrNull(16) ?: 0L
-                    val amount = if (isPayment && amtRaw > 0) (16777216L - amtRaw) else amtRaw
-
-                    val balHex = if (hex.length >= 50) hex.substring(44, 50) else "0"
-                    val balRaw = balHex.toLongOrNull(16) ?: 0L
-                    val validBal = if (isPayment) {
-                        val endBal = Math.abs(balRaw - amount)
-                        if (endBal in 0L..100_000_000L) endBal else null
-                    } else {
-                        when {
-                            balRaw in amount..100_000_000L -> balRaw
-                            balRaw == 0L && amount in 1L..100_000_000L -> amount
-                            (balRaw + amount) in amount..100_000_000L -> balRaw + amount
-                            else -> null
+                        if (resp.size < 34 || !resp.isSuccess()) {
+                            consecutiveFailures++
+                            if (consecutiveFailures >= 3) break
+                            continue
                         }
-                    }
+                        consecutiveFailures = 0
 
-                    val tidHex = if (hex.length >= 44) hex.substring(28, 44) else null
-                    val tidAscii = tidHex?.chunked(2)?.mapNotNull {
-                        val code = it.toIntOrNull(16) ?: return@mapNotNull null
-                        if (code in 32..126) code.toChar() else null
-                    }?.joinToString("")?.trim()
+                        val payload = if (resp.size >= 2) resp.sliceArray(0 until resp.size - 2) else resp
+                        if (payload.size < 32) continue
 
-                    if (dateObj != null && amount in 1..100_000_000L) {
+                        val timeSecs = ByteBuffer.wrap(payload.sliceArray(4..7)).int.toLong() and 0xFFFFFFFFL
+                        if (timeSecs <= 0L) continue
+
+                        val isPayment = (payload[0].toInt() and 0xFF) == 0x04
+                        val rawAmt = ByteBuffer.wrap(byteArrayOf(0, payload[1], payload[2], payload[3])).int.toLong() and 0xFFFFFFFFL
+                        val amount = if (isPayment && rawAmt > 0) (16777216L - rawAmt) else rawAmt
+                        if (amount <= 0L || amount > 100_000_000L) continue
+
+                        val balRaw = ByteBuffer.wrap(byteArrayOf(0, payload[22], payload[23], payload[24])).int.toLong() and 0xFFFFFFFFL
+                        val validBal = if (isPayment) {
+                            if (balRaw in 1L..100_000_000L) {
+                                val endBal = Math.abs(balRaw - amount)
+                                if (endBal in 0L..100_000_000L) endBal else null
+                            } else null
+                        } else {
+                            when {
+                                balRaw in amount..100_000_000L -> balRaw
+                                (balRaw + amount) in amount..100_000_000L -> balRaw + amount
+                                else -> null
+                            }
+                        }
+
+                        val dateObj = TxDates.parseFlazzSeconds(timeSecs) ?: Date(timeSecs * 1000L)
+                        val tidBytes = payload.sliceArray(14..21)
+                        val terminal = cleanTerminalId(tidBytes)
+
                         history.add(
                             CardTransactionItem(
                                 type = if (isPayment) "Payment" else "Top up",
@@ -338,23 +325,21 @@ class FlazzParser : EmoneyParser {
                                 balance = validBal,
                                 date = TxDates.formatDate(dateObj),
                                 time = TxDates.formatTime(dateObj),
-                                terminalId = if (!tidAscii.isNullOrBlank()) tidAscii else tidHex
+                                terminalId = terminal
                             )
                         )
+                    } catch (_: Exception) {
+                        consecutiveFailures++
+                        if (consecutiveFailures >= 3) break
+                        continue
                     }
-                } catch (_: Exception) {
-                    consecutiveFailures++
-                    if (consecutiveFailures >= 3) {
-                        break
-                    }
-                    continue
                 }
             }
         } catch (e: Exception) {
             log.append("Flazz DESFire circular log err: ${e.message}\n")
         }
 
-        // 3. Gen 1 cyclic record reading (combined with SFI and DESFire)
+        // 3. Gen 1 cyclic record reading
         for (rec in 1..16) {
             val fallbackRec = String.format("00B2%02X0C00", rec).hexToBytes()
             try {
@@ -375,7 +360,7 @@ class FlazzParser : EmoneyParser {
                         history.add(
                             CardTransactionItem(
                                 type = "Payment",
-                                 amount = amount,
+                                amount = amount,
                                 balance = null,
                                 date = TxDates.formatDate(dateObj),
                                 time = TxDates.formatTime(dateObj),
@@ -390,56 +375,25 @@ class FlazzParser : EmoneyParser {
         }
 
         val sorted = history
-            .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.type}_${it.terminalId ?: ""}" }
+            .distinctBy { "${it.date}_${it.time}_${it.amount}_${it.terminalId ?: ""}" }
             .sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" })
             .toMutableList()
 
-        // ponytail: bidirectional ledger reconciliation anchored to current card balance. Ceiling: recovers missing balances across gaps.
+        // ponytail: anchor current balance and backward propagate ONLY when balance is missing (e.g. Gen 1 cards).
         if (sorted.isNotEmpty()) {
-            if (currentBalance != null && currentBalance >= 0L) {
+            if (sorted[0].balance == null && currentBalance != null && currentBalance >= 0L) {
                 sorted[0] = sorted[0].copy(balance = currentBalance)
             }
 
-            // Pass 1: Backward propagation (newer to older)
             for (i in 1 until sorted.size) {
-                val prev = sorted[i - 1]
-                val prevBal = prev.balance
-                val curr = sorted[i]
-                val isCurrTopUp = curr.type.contains("Top", true) || curr.type.contains("Isi", true)
-
-                if (prevBal != null) {
-                    val isPrevPayment = !prev.type.contains("Top", true) && !prev.type.contains("Isi", true)
-                    val computed = if (isPrevPayment) {
-                        prevBal + prev.amount
-                    } else {
-                        prevBal - prev.amount
-                    }
-                    val isValidComputed = computed in 0L..100_000_000L && (!isCurrTopUp || computed >= curr.amount)
-                    if (isValidComputed) {
-                        sorted[i] = sorted[i].copy(balance = computed)
-                    } else {
-                        // Preserve valid chip balance if backpropagation drops below 0 or below Top Up amount
-                        val existing = curr.balance
-                        val isValidExisting = existing != null && existing in 0L..100_000_000L && (!isCurrTopUp || existing >= curr.amount)
-                        sorted[i] = sorted[i].copy(balance = if (isValidExisting) existing else null)
-                    }
-                }
-            }
-
-            // Pass 2: Forward propagation (older to newer) for any items still unresolved
-            for (i in (sorted.size - 2) downTo 0) {
                 if (sorted[i].balance == null) {
-                    val nextOlder = sorted[i + 1]
-                    val olderBal = nextOlder.balance
-                    val curr = sorted[i]
-                    val isCurrPayment = !curr.type.contains("Top", true) && !curr.type.contains("Isi", true)
-                    if (olderBal != null) {
-                        val computed = if (isCurrPayment) {
-                            olderBal - curr.amount
-                        } else {
-                            olderBal + curr.amount
-                        }
-                        val isValidComputed = computed in 0L..100_000_000L && (isCurrPayment || computed >= curr.amount)
+                    val prev = sorted[i - 1]
+                    val prevBal = prev.balance
+                    if (prevBal != null) {
+                        val isPrevPayment = !prev.type.contains("Top", true) && !prev.type.contains("Isi", true)
+                        val computed = if (isPrevPayment) (prevBal + prev.amount) else (prevBal - prev.amount)
+                        val isCurrTopUp = sorted[i].type.contains("Top", true) || sorted[i].type.contains("Isi", true)
+                        val isValidComputed = computed in 0L..100_000_000L && (!isCurrTopUp || computed >= sorted[i].amount)
                         if (isValidComputed) {
                             sorted[i] = sorted[i].copy(balance = computed)
                         }
@@ -449,6 +403,13 @@ class FlazzParser : EmoneyParser {
         }
 
         return sorted
+    }
+
+    private fun cleanTerminalId(bytes: ByteArray): String {
+        val text = String(bytes, Charsets.US_ASCII)
+            .filter { it.code in 32..126 }
+            .trim()
+        return text.ifEmpty { bytes.toHexString() }
     }
 
     /**

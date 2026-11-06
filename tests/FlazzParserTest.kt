@@ -603,4 +603,76 @@ class FlazzParserTest {
         assertEquals(130_000L, resolved[1].balance)
         assertEquals(30_000L, resolved[2].balance)
     }
+
+    @Test
+    fun testFlazzGen2Exact28ItemsDeduplicationAndAuthenticBalances() {
+        val parser = FlazzParser()
+        val log = StringBuilder()
+
+        // SFI 4: 4 records (offsets 0, 60, 120, 180)
+        val sfiBuffer = ByteArray(240)
+        for (i in 0 until 4) {
+            val offset = i * 60
+            sfiBuffer[offset] = 0x04 // Payment
+            ByteBuffer.wrap(sfiBuffer, offset + 1, 4).putInt(50_000 - i * 5_000) // chip balance
+            sfiBuffer[offset + 6] = 0x00
+            sfiBuffer[offset + 7] = 0x13.toByte()
+            sfiBuffer[offset + 8] = 0x88.toByte() // 5,000
+            val term = String.format("TERM%04d", i)
+            System.arraycopy(term.toByteArray(Charsets.US_ASCII), 0, sfiBuffer, offset + 30, 8)
+            ByteBuffer.wrap(sfiBuffer, offset + 38, 4).putInt(1391960000 + (30 - i) * 100)
+        }
+
+        // DESFire: 28 records. Records 0..3 match SFI records, records 4..27 are older transactions.
+        val desfireRecords = mutableListOf<ByteArray>()
+        for (i in 0 until 28) {
+            val rec = ByteArray(32)
+            rec[0] = 0x04 // Payment
+            // Amount: 5,000 -> 16777216 - 5000 = 16772216 = 0xFFEC78
+            rec[1] = 0xFF.toByte()
+            rec[2] = 0xEC.toByte()
+            rec[3] = 0x78.toByte()
+            ByteBuffer.wrap(rec, 4, 4).putInt(1391960000 + (30 - i) * 100)
+            val term = String.format("TERM%04d", i)
+            System.arraycopy(term.toByteArray(Charsets.US_ASCII), 0, rec, 14, 8)
+            // Balance before: endBal + 5000
+            val endBal = 50_000 - i * 1_000
+            val balBefore = endBal + 5_000
+            rec[22] = ((balBefore shr 16) and 0xFF).toByte()
+            rec[23] = ((balBefore shr 8) and 0xFF).toByte()
+            rec[24] = (balBefore and 0xFF).toByte()
+            desfireRecords.add(rec)
+        }
+
+        val mockChannel = ApduChannel { cmd ->
+            val hex = cmd.toHexString()
+            when {
+                hex == "00A404000BA0000000180F000001800100" -> "9000".hexToBytes()
+                hex == "00A40100020200" -> "9000".hexToBytes()
+                hex == "00B081008E" -> ";6019888899990000=2512101000000000?".toByteArray(Charsets.US_ASCII) + "9000".hexToBytes()
+                hex == "803200030400000000" -> byteArrayOf(0x00, 0x00, 0xC3.toByte(), 0x50.toByte(), 0x90.toByte(), 0x00) // 50,000
+                hex == "0000400B000004020000" -> "9000".hexToBytes()
+                hex.startsWith("00B084") -> {
+                    val p2 = cmd[3].toInt() and 0xFF
+                    if (p2 < 240) sfiBuffer.sliceArray(p2 until p2 + 15) + "9000".hexToBytes() else "6A82".hexToBytes()
+                }
+                hex.startsWith("00B085") -> "6A82".hexToBytes()
+                hex == "9032030000" -> "9000".hexToBytes()
+                hex.startsWith("9032030001") -> {
+                    val recIdx = cmd[5].toInt() and 0xFF
+                    if (recIdx < 28) desfireRecords[recIdx] + "9000".hexToBytes() else "6A83".hexToBytes()
+                }
+                else -> "6A82".hexToBytes()
+            }
+        }
+
+        val result = parser.parseChannel(mockChannel, "04AABBCCDDEEFF", log)
+        assertNotNull(result)
+        val history = result?.history ?: emptyList()
+
+        // SFI 4 records and matching DESFire records MUST be deduplicated -> exactly 28 items, NOT 32!
+        assertEquals(28, history.size)
+        assertTrue("All balances are positive and valid", history.all { it.balance != null && it.balance!! > 0L })
+        assertTrue("Latest balance matches chip balance 50,000", history[0].balance == 50_000L)
+    }
 }
