@@ -86,17 +86,22 @@ jobs:
           echo "VERSION_CODE=$version_code" >> "$GITHUB_ENV"
           echo "Resolved version: $version_name ($version_code)"
 
-      - name: Build unsigned release APK
+      - name: Run unit tests
         working-directory: android
         run: |
           set -euo pipefail
           sed -i 's/\r$//' gradlew
           chmod +x gradlew
-          ./gradlew clean assembleRelease \
+          ./gradlew testDebugUnitTest --no-daemon
+
+      - name: Build unsigned release APK
+        working-directory: android
+        run: |
+          set -euo pipefail
+          ./gradlew assembleRelease \
             -PversionName="$VERSION_NAME" \
             -PversionCode="$VERSION_CODE" \
             --no-daemon
-
       - name: Prepare signing keystore
         shell: bash
         env:
