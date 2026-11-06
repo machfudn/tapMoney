@@ -1,0 +1,221 @@
+name: Android Staging CI & Pre-Release
+
+on:
+  push:
+    branches: [staging]
+    tags:
+      - 'v*-beta*'
+      - 'v*-rc*'
+  pull_request:
+    branches: [staging]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version Name (contoh: 1.1.14-beta.1)'
+        required: false
+        default: ''
+        type: string
+      publish_release:
+        description: 'Publish GitHub Pre-Release'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, sign, verify Pre-Release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve staging version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          prop_file="android/version.properties"
+          tag_version=""
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+          fi
+
+          base_version_name="$(sed -n 's/^versionName=//p' "$prop_file" | tr -d '\r')"
+          base_version_code="$(sed -n 's/^versionCode=//p' "$prop_file" | tr -d '\r')"
+
+          version_name="${tag_version:-${INPUT_VERSION:-}}"
+          if [[ -z "$version_name" ]]; then
+            if [[ "$base_version_name" =~ - ]]; then
+              version_name="$base_version_name"
+            else
+              version_name="${base_version_name}-beta.${GITHUB_RUN_NUMBER}"
+            fi
+          fi
+
+          version_code="$base_version_code"
+          if [[ "${version_code}" =~ ^[0-9]+$ ]]; then
+            # Safe numeric bump for staging builds
+            version_code=$(( version_code + GITHUB_RUN_NUMBER ))
+          fi
+
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+          echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
+          echo "VERSION_NAME=$version_name" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$version_code" >> "$GITHUB_ENV"
+          echo "Resolved staging version: $version_name ($version_code)"
+
+      - name: Build unsigned staging APK
+        working-directory: android
+        run: |
+          set -euo pipefail
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          ./gradlew clean assembleRelease \
+            -PversionName="$VERSION_NAME" \
+            -PversionCode="$VERSION_CODE" \
+            --no-daemon
+
+      - name: Prepare signing keystore
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_ALIAS_SECRET: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD_SECRET: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${KEYSTORE_BASE64:-}" && -n "${KEYSTORE_PASSWORD:-}" ]]; then
+            printf '%s' "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > release.keystore
+            [[ -s release.keystore ]] || { echo "Decoded keystore is empty." >&2; exit 1; }
+            KEY_ALIAS="${KEY_ALIAS_SECRET:-tapmoney}"
+            KEY_PASSWORD="${KEY_PASSWORD_SECRET:-$KEYSTORE_PASSWORD}"
+            echo "Using production signing keystore for staging."
+          else
+            echo "Secrets not provided; generating temporary staging keystore."
+            KEYSTORE_PASSWORD="StagingPassword123"
+            KEY_PASSWORD="StagingPassword123"
+            KEY_ALIAS="tapmoneystaging"
+            keytool -genkeypair -v \
+              -keystore release.keystore \
+              -alias "$KEY_ALIAS" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 1000 \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -keypass "$KEY_PASSWORD" \
+              -dname "CN=TapMoney Staging, OU=Mobile QA, O=TapMoney, L=Jakarta, ST=DKI Jakarta, C=ID"
+          fi
+          {
+            echo "KEY_ALIAS=$KEY_ALIAS"
+            echo "KEY_PASSWORD=$KEY_PASSWORD"
+            echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Align and sign APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_tools="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          [[ -n "$build_tools" ]] || { echo "Android Build Tools not found." >&2; exit 1; }
+
+          unsigned_apk="android/app/build/outputs/apk/release/app-release-unsigned.apk"
+          [[ -f "$unsigned_apk" ]] || { echo "Missing $unsigned_apk" >&2; exit 1; }
+          aligned_apk="android/app/build/outputs/apk/release/app-staging-aligned.apk"
+          output_apk="TapMoney-v${VERSION_NAME}.apk"
+
+          "$build_tools/zipalign" -f -p 4 "$unsigned_apk" "$aligned_apk"
+          "$build_tools/apksigner" sign \
+            --ks release.keystore \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASSWORD" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out "$output_apk" \
+            "$aligned_apk"
+          "$build_tools/apksigner" verify --verbose "$output_apk"
+          echo "APK: $output_apk"
+          sha256sum "$output_apk" | awk '{print $1}' > "${output_apk}.sha256"
+          echo "SHA256: $(cat ${output_apk}.sha256)"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TapMoney-v${{ steps.version.outputs.version_name }}-staging
+          path: |
+            TapMoney-v${{ steps.version.outputs.version_name }}.apk
+            TapMoney-v${{ steps.version.outputs.version_name }}.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Generate dynamic pre-release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          body_file="android/RELEASE_NOTES_BETA.md"
+          if [[ ! -f "$body_file" ]]; then
+            body_file="RELEASE_NOTES_BETA.md"
+          fi
+          if [[ ! -f "$body_file" ]]; then
+            body_file="android/RELEASE_NOTES.md"
+          fi
+
+          output_file="release_body.md"
+          echo "## TapMoney v${VERSION_NAME} (Pre-Release / Beta)" > "$output_file"
+          echo "" >> "$output_file"
+          echo "Versi uji coba aplikasi TapMoney untuk Android (Build Code: ${VERSION_CODE}). / Beta pre-release build of TapMoney for Android." >> "$output_file"
+          echo "" >> "$output_file"
+
+          if [[ -f "$body_file" && -s "$body_file" ]]; then
+            cat "$body_file" >> "$output_file"
+          else
+            echo "### Ringkasan Rilis Beta" >> "$output_file"
+            echo "* Rilis pengujian fitur eksperimental dan perbaikan performa sebelum rilis stabil." >> "$output_file"
+          fi
+
+          echo "" >> "$output_file"
+          sha256_val=$(cat "TapMoney-v${VERSION_NAME}.apk.sha256" 2>/dev/null || sha256sum "TapMoney-v${VERSION_NAME}.apk" | awk '{print $1}')
+          echo "### Informasi Berkas / File Information" >> "$output_file"
+          echo "* File: \`TapMoney-v${VERSION_NAME}.apk\`" >> "$output_file"
+          echo "* Version Code: \`${VERSION_CODE}\`" >> "$output_file"
+          echo "* Commit SHA: \`${{ github.sha }}\`" >> "$output_file"
+          echo "* SHA-256: \`${sha256_val}\`" >> "$output_file"
+
+      - name: Publish GitHub Pre-Release
+        if: github.ref_type == 'tag' || github.ref == 'refs/heads/staging' || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version_name) }}
+          name: TapMoney v${{ steps.version.outputs.version_name }} (Beta)
+          body_path: release_body.md
+          files: |
+            TapMoney-v${{ steps.version.outputs.version_name }}.apk
+            TapMoney-v${{ steps.version.outputs.version_name }}.apk.sha256
+          draft: false
+          prerelease: true
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

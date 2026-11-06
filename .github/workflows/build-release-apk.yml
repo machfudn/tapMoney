@@ -5,6 +5,8 @@ on:
     branches: [main]
     tags:
       - 'v*'
+      - '!v*-beta*'
+      - '!v*-rc*'
   pull_request:
     branches: [main]
   workflow_dispatch:
