@@ -966,7 +966,7 @@ fun HistoryGroupWidget(
                     HorizontalDivider(color = borderColor.copy(alpha = 0.2f), thickness = 1.dp)
                 }
 
-                val isTopUp = tx.type == "Top up"
+                val isTopUp = tx.type.contains("Top", true) || tx.type.contains("Isi", true)
                 val typeColor = if (showTransactionColors) {
                     if (isTopUp) NeoColors.Green else NeoColors.Red
                 } else textColor

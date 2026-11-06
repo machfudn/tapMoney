@@ -1,14 +1,18 @@
 package id.tapmoney.nfc.parser
 
+import id.tapmoney.model.CardBalanceResult
+import id.tapmoney.model.CardIssuer
+import id.tapmoney.model.CardTransactionItem
 import id.tapmoney.nfc.ApduChannel
 import id.tapmoney.nfc.hexToBytes
 import id.tapmoney.nfc.toHexString
+import id.tapmoney.util.ReceiptFormatter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.ByteBuffer
-
 class FlazzParserTest {
 
     @Test
@@ -370,5 +374,233 @@ class FlazzParserTest {
         assertTrue("SFI item present", history.any { it.terminalId == "SFITERM1" && it.amount == 10_000L })
         assertTrue("DESFire item present", history.any { it.terminalId == "DESFTERM" && it.amount == 20_000L })
         assertTrue("Gen 1 cyclic item present", history.any { it.terminalId == "REC-1" && it.amount == 5_000L })
+    }
+
+    @Test
+    fun testReceiptFormatterUnknownBalancePreserved() {
+        val card = CardBalanceResult(
+            cardType = "BCA Flazz (Terenkripsi)",
+            issuer = CardIssuer.BCA,
+            cardNumber = "04AABBCCDD",
+            balance = 0L,
+            balanceKnown = false,
+            history = listOf(
+                CardTransactionItem(
+                    type = "Payment",
+                    amount = 5_000L,
+                    balance = null,
+                    date = "15/02/2024",
+                    time = "12:00:00"
+                )
+            )
+        )
+        val resolved = ReceiptFormatter.resolveEndingBalances(card)
+        assertEquals(1, resolved.size)
+        assertNull(resolved[0].balance)
+    }
+    @Test
+    fun testFlazzTopUpInSfi5EndingBalancePreserved() {
+        val parser = FlazzParser()
+        val log = StringBuilder()
+
+        // SFI 4: Payment Rp 20,000 at T2 (seconds = 1391962000)
+        val sfiPayment = ByteArray(60)
+        sfiPayment[0] = 0x04 // Payment
+        ByteBuffer.wrap(sfiPayment, 1, 4).putInt(100_000) // Balance after payment = 100,000
+        sfiPayment[6] = 0x00
+        sfiPayment[7] = 0x4E.toByte()
+        sfiPayment[8] = 0x20.toByte() // 20,000
+        System.arraycopy("PAYTERM1".toByteArray(Charsets.US_ASCII), 0, sfiPayment, 30, 8)
+        ByteBuffer.wrap(sfiPayment, 38, 4).putInt(1391962000)
+
+        // SFI 5: Top Up Rp 100,000 at T1 (seconds = 1391961000) with raw chip balance = 120,000
+        val sfiTopUp = ByteArray(60)
+        sfiTopUp[0] = 0x01 // Top up (non-0x04)
+        ByteBuffer.wrap(sfiTopUp, 1, 4).putInt(120_000) // Raw balance = 120,000
+        sfiTopUp[6] = 0x01
+        sfiTopUp[7] = 0x86.toByte()
+        sfiTopUp[8] = 0xA0.toByte() // 100,000
+        System.arraycopy("ATM BCA ".toByteArray(Charsets.US_ASCII), 0, sfiTopUp, 30, 8)
+        ByteBuffer.wrap(sfiTopUp, 38, 4).putInt(1391961000)
+
+        val mockChannel = ApduChannel { cmd ->
+            val hex = cmd.toHexString()
+            when {
+                hex == "00A404000BA0000000180F000001800100" -> "9000".hexToBytes()
+                hex == "00A40100020200" -> "9000".hexToBytes()
+                hex == "00B081008E" -> ";6019333344445555=2512101000000000?".toByteArray(Charsets.US_ASCII) + "9000".hexToBytes()
+                hex == "803200030400000000" -> byteArrayOf(0x00, 0x01, 0x86.toByte(), 0xA0.toByte(), 0x90.toByte(), 0x00) // current balance = 100,000
+                hex == "0000400B000004020000" -> "9000".hexToBytes()
+                hex.startsWith("00B084") -> {
+                    val p2 = cmd[3].toInt() and 0xFF
+                    if (p2 < 60) sfiPayment.sliceArray(p2 until p2 + 15) + "9000".hexToBytes() else "6A82".hexToBytes()
+                }
+                hex.startsWith("00B085") -> {
+                    val p2 = cmd[3].toInt() and 0xFF
+                    if (p2 < 60) sfiTopUp.sliceArray(p2 until p2 + 15) + "9000".hexToBytes() else "6A82".hexToBytes()
+                }
+                else -> "6A82".hexToBytes()
+            }
+        }
+
+        val result = parser.parseChannel(mockChannel, "04AABBCCDDEEFF", log)
+        assertNotNull(result)
+        assertEquals(100_000L, result?.balance)
+        val history = result?.history ?: emptyList()
+        assertEquals(2, history.size)
+
+        // Index 0: Payment 20,000 at T2 -> ending balance 100,000
+        assertEquals("Payment", history[0].type)
+        assertEquals(20_000L, history[0].amount)
+        assertEquals(100_000L, history[0].balance)
+
+        // Index 1: Top up 100,000 at T1 -> ending balance 120,000 (100,000 + 20,000)
+        assertEquals("Top up", history[1].type)
+        assertEquals(100_000L, history[1].amount)
+        assertEquals(120_000L, history[1].balance)
+    }
+
+    @Test
+    fun testFlazzDesfireTopUpEndingBalanceDecoded() {
+        val parser = FlazzParser()
+        val log = StringBuilder()
+
+        // DESFire Top Up record: byte 0 = 0x01 (not 0x04)
+        // bytes 1..3: amount 50,000 = 0x00C350
+        // bytes 4..7: epoch 1391961600
+        // bytes 14..21: "ATMBCA01"
+        // bytes 22..24: raw balance 75,000 = 0x0124F8
+        val desfireRecord = ByteArray(32)
+        desfireRecord[0] = 0x01 // Top up
+        desfireRecord[1] = 0x00
+        desfireRecord[2] = 0xC3.toByte()
+        desfireRecord[3] = 0x50.toByte() // 50,000
+        ByteBuffer.wrap(desfireRecord, 4, 4).putInt(1391961600)
+        System.arraycopy("ATMBCA01".toByteArray(Charsets.US_ASCII), 0, desfireRecord, 14, 8)
+        desfireRecord[22] = 0x01
+        desfireRecord[23] = 0x24.toByte()
+        desfireRecord[24] = 0xF8.toByte() // 75,000
+
+        val mockChannel = ApduChannel { cmd ->
+            val hex = cmd.toHexString()
+            when {
+                hex == "00A404000BA0000000180F000001800100" -> "9000".hexToBytes()
+                hex == "00A40100020200" -> "9000".hexToBytes()
+                hex == "00B081008E" -> ";6019444455556666=2512101000000000?".toByteArray(Charsets.US_ASCII) + "9000".hexToBytes()
+                hex == "803200030400000000" -> byteArrayOf(0x00, 0x01, 0x24.toByte(), 0xF8.toByte(), 0x90.toByte(), 0x00) // balance 75,000
+                hex.startsWith("00B084") || hex.startsWith("00B085") -> "6A82".hexToBytes()
+                hex == "9032030000" -> "9000".hexToBytes()
+                hex == "90320300010020" -> desfireRecord + "9000".hexToBytes()
+                hex == "90320300010120" -> "6A83".hexToBytes()
+                else -> "6A82".hexToBytes()
+            }
+        }
+
+        val result = parser.parseChannel(mockChannel, "04AABBCCDDEEFF", log)
+        assertNotNull(result)
+        val history = result?.history ?: emptyList()
+        assertEquals(1, history.size)
+        assertEquals("Top up", history[0].type)
+        assertEquals(50_000L, history[0].amount)
+        assertEquals(75_000L, history[0].balance)
+    }
+
+    @Test
+    fun testFlazzDiscontinuousHistoryTopUpPreservesRawChipBalance() {
+        val card = CardBalanceResult(
+            cardType = "BCA Flazz",
+            issuer = CardIssuer.BCA,
+            cardNumber = "6019123412341234",
+            balance = 8_000L,
+            balanceKnown = true,
+            history = listOf(
+                // Recent payment: 10,000
+                CardTransactionItem(
+                    type = "Payment",
+                    amount = 10_000L,
+                    balance = null,
+                    date = "2026-11-03",
+                    time = "15:00:00",
+                    terminalId = "PARK01"
+                ),
+                // Old Top Up: 100,000 with chip ending balance 150,000 from months ago (intermediate payments purged from card)
+                CardTransactionItem(
+                    type = "Top up",
+                    amount = 100_000L,
+                    balance = 150_000L,
+                    date = "2026-08-01",
+                    time = "10:00:00",
+                    terminalId = "ATM BCA"
+                ),
+                // Older payment: 20,000
+                CardTransactionItem(
+                    type = "Payment",
+                    amount = 20_000L,
+                    balance = null,
+                    date = "2026-07-20",
+                    time = "09:00:00",
+                    terminalId = "TOLL01"
+                )
+            )
+        )
+
+        val resolved = ReceiptFormatter.resolveEndingBalances(card)
+        assertEquals(3, resolved.size)
+
+        // 1. Recent payment anchored to current balance (8,000)
+        assertEquals(8_000L, resolved[0].balance)
+
+        // 2. Top Up raw chip balance (150,000) MUST NOT be wiped or overridden with impossible 18,000 (8k + 10k)
+        assertEquals(150_000L, resolved[1].balance)
+
+        // 3. Older payment backpropagated from Top Up anchor: 150,000 - 100,000 = 50,000
+        assertEquals(50_000L, resolved[2].balance)
+    }
+
+    @Test
+    fun testReceiptFormatterTopUpForwardPropagationRecovery() {
+        val card = CardBalanceResult(
+            cardType = "BCA Flazz",
+            issuer = CardIssuer.BCA,
+            cardNumber = "6019123412341234",
+            balance = 8_000L,
+            balanceKnown = true,
+            history = listOf(
+                // Recent payment with gap
+                CardTransactionItem(
+                    type = "Payment",
+                    amount = 10_000L,
+                    balance = null,
+                    date = "2026-11-03",
+                    time = "15:00:00",
+                    terminalId = "PARK01"
+                ),
+                // Top up with unknown chip balance
+                CardTransactionItem(
+                    type = "Top up",
+                    amount = 100_000L,
+                    balance = null,
+                    date = "2026-08-01",
+                    time = "10:00:00",
+                    terminalId = "ATM BCA"
+                ),
+                // Older payment with known balance 30,000
+                CardTransactionItem(
+                    type = "Payment",
+                    amount = 20_000L,
+                    balance = 30_000L,
+                    date = "2026-07-20",
+                    time = "09:00:00",
+                    terminalId = "TOLL01"
+                )
+            )
+        )
+
+        val resolved = ReceiptFormatter.resolveEndingBalances(card)
+        assertEquals(3, resolved.size)
+        assertEquals(8_000L, resolved[0].balance)
+        // Recovered via forward propagation from older payment (30,000 + 100,000 = 130,000)
+        assertEquals(130_000L, resolved[1].balance)
+        assertEquals(30_000L, resolved[2].balance)
     }
 }

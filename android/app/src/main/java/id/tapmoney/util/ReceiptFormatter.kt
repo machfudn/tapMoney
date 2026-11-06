@@ -49,57 +49,53 @@ object ReceiptFormatter {
         if (items.isEmpty()) return emptyList()
         val sorted = items.sortedWith(compareByDescending<CardTransactionItem> { "${it.date} ${it.time}" }).toMutableList()
 
-        // ponytail: deterministic ledger backpropagation from ground truth balance. Ceiling: contiguous transactions.
-        if (card.balance >= 0L) {
+        // ponytail: bidirectional ledger reconciliation anchored to current card balance. Ceiling: recovers missing balances across gaps.
+        if (card.balanceKnown && card.balance >= 0L) {
             sorted[0] = sorted[0].copy(balance = card.balance)
-            for (i in 1 until sorted.size) {
-                val prev = sorted[i - 1]
-                val prevBal = prev.balance
-                if (prevBal != null) {
-                    val isPrevPayment = !prev.type.contains("Top", true) && !prev.type.contains("Isi", true)
-                    val computed = if (isPrevPayment) {
-                        prevBal + prev.amount
-                    } else {
-                        prevBal - prev.amount
-                    }
-                    sorted[i] = sorted[i].copy(balance = if (computed in 0L..100_000_000L) computed else null)
-                }
-            }
-        } else {
-            // Backward propagation (newer to older)
-            for (i in 1 until sorted.size) {
-                if (sorted[i].balance == null) {
-                    val prev = sorted[i - 1]
-                    val prevBal = prev.balance
-                    if (prevBal != null) {
-                        val isPrevPayment = !prev.type.contains("Top", true) && !prev.type.contains("Isi", true)
-                        val computed = if (isPrevPayment) {
-                            prevBal + prev.amount
-                        } else {
-                            prevBal - prev.amount
-                        }
-                        if (computed in 0L..100_000_000L) {
-                            sorted[i] = sorted[i].copy(balance = computed)
-                        }
-                    }
-                }
-            }
+        }
 
-            // Forward propagation (older to newer) if latest balance was null
-            for (i in (sorted.size - 2) downTo 0) {
-                if (sorted[i].balance == null) {
-                    val nextOlder = sorted[i + 1]
-                    val olderBal = nextOlder.balance
-                    if (olderBal != null) {
-                        val isCurrentPayment = !sorted[i].type.contains("Top", true) && !sorted[i].type.contains("Isi", true)
-                        val computed = if (isCurrentPayment) {
-                            olderBal - sorted[i].amount
-                        } else {
-                            olderBal + sorted[i].amount
-                        }
-                        if (computed in 0L..100_000_000L) {
-                            sorted[i] = sorted[i].copy(balance = computed)
-                        }
+        // Pass 1: Backward propagation (newer to older)
+        for (i in 1 until sorted.size) {
+            val prev = sorted[i - 1]
+            val prevBal = prev.balance
+            val curr = sorted[i]
+            val isCurrTopUp = curr.type.contains("Top", true) || curr.type.contains("Isi", true)
+
+            if (prevBal != null) {
+                val isPrevPayment = !prev.type.contains("Top", true) && !prev.type.contains("Isi", true)
+                val computed = if (isPrevPayment) {
+                    prevBal + prev.amount
+                } else {
+                    prevBal - prev.amount
+                }
+                val isValidComputed = computed in 0L..100_000_000L && (!isCurrTopUp || computed >= curr.amount)
+                if (isValidComputed) {
+                    sorted[i] = sorted[i].copy(balance = computed)
+                } else {
+                    // Preserve valid chip balance if backpropagation drops below 0 or below Top Up amount
+                    val existing = curr.balance
+                    val isValidExisting = existing != null && existing in 0L..100_000_000L && (!isCurrTopUp || existing >= curr.amount)
+                    sorted[i] = sorted[i].copy(balance = if (isValidExisting) existing else null)
+                }
+            }
+        }
+
+        // Pass 2: Forward propagation (older to newer) for any items still unresolved
+        for (i in (sorted.size - 2) downTo 0) {
+            if (sorted[i].balance == null) {
+                val nextOlder = sorted[i + 1]
+                val olderBal = nextOlder.balance
+                val curr = sorted[i]
+                val isCurrPayment = !curr.type.contains("Top", true) && !curr.type.contains("Isi", true)
+                if (olderBal != null) {
+                    val computed = if (isCurrPayment) {
+                        olderBal - curr.amount
+                    } else {
+                        olderBal + curr.amount
+                    }
+                    val isValidComputed = computed in 0L..100_000_000L && (isCurrPayment || computed >= curr.amount)
+                    if (isValidComputed) {
+                        sorted[i] = sorted[i].copy(balance = computed)
                     }
                 }
             }
