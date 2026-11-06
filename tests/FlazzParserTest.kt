@@ -4,6 +4,7 @@ import id.tapmoney.model.CardBalanceResult
 import id.tapmoney.model.CardIssuer
 import id.tapmoney.model.CardTransactionItem
 import id.tapmoney.nfc.ApduChannel
+import id.tapmoney.nfc.TxDates
 import id.tapmoney.nfc.hexToBytes
 import id.tapmoney.nfc.toHexString
 import id.tapmoney.util.ReceiptFormatter
@@ -674,5 +675,193 @@ class FlazzParserTest {
         assertEquals(28, history.size)
         assertTrue("All balances are positive and valid", history.all { it.balance != null && it.balance!! > 0L })
         assertTrue("Latest balance matches chip balance 50,000", history[0].balance == 50_000L)
+    }
+
+    @Test
+    fun testTxDatesParseFlazzSecondsYearBoundsAndOverflowSafety() {
+        // Valid 2026 timestamp (04 Nov 2026)
+        val validDate = TxDates.parseFlazzSeconds(1478284260L)
+        assertNotNull(validDate)
+
+        // Overflow timestamp (2550359216L) which previously wrapped into signed negative (year 1924)
+        val overflowDate = TxDates.parseFlazzSeconds(2550359216L)
+        assertNull(overflowDate)
+
+        // Corrupt legacy timestamp (805527552L = year 2005)
+        val legacyDate = TxDates.parseFlazzSeconds(805527552L)
+        assertNull(legacyDate)
+
+        // Non-positive values
+        assertNull(TxDates.parseFlazzSeconds(0L))
+        assertNull(TxDates.parseFlazzSeconds(-100L))
+    }
+
+    @Test
+    fun testFlazzFull37TransactionsMergedAndCorruptDatesFiltered() {
+        val parser = FlazzParser()
+        val log = StringBuilder()
+
+        // SFI 4: 4 offline EDC transactions (Pertamina Rawa Badung)
+        // 04 Nov 18:31 - Rp 30,000 (bal 8,501)
+        // 30 Oct 06:11 - Rp 30,000 (bal 38,501)
+        // 26 Oct 07:48 - Rp 10,000 (bal 68,501)
+        // 14 Oct 07:35 - Rp 23,000 (bal 78,501)
+        val sfiBuffer = ByteArray(240)
+        val sfiTxs = listOf(
+            Triple(1478284260, 30_000, 8_501),
+            Triple(1477807860, 30_000, 38_501),
+            Triple(1477468080, 10_000, 68_501),
+            Triple(1476430500, 23_000, 78_501)
+        )
+        sfiTxs.forEachIndexed { i, (timeSecs, amt, bal) ->
+            val offset = i * 60
+            sfiBuffer[offset] = 0x04 // Payment
+            ByteBuffer.wrap(sfiBuffer, offset + 1, 4).putInt(bal)
+            sfiBuffer[offset + 6] = ((amt shr 16) and 0xFF).toByte()
+            sfiBuffer[offset + 7] = ((amt shr 8) and 0xFF).toByte()
+            sfiBuffer[offset + 8] = (amt and 0xFF).toByte()
+            System.arraycopy("PERTAMINA".take(8).toByteArray(Charsets.US_ASCII), 0, sfiBuffer, offset + 30, 8)
+            ByteBuffer.wrap(sfiBuffer, offset + 38, 4).putInt(timeSecs)
+        }
+
+        // DESFire: 33 valid records + 2 corrupt records = 35 records
+        val desfireRecords = mutableListOf<ByteArray>()
+
+        // Rec 0: 12 Oct 06:29 - Top up Rp 10,000 (raw bal = 101,501)
+        val rec0 = ByteArray(32)
+        rec0[0] = 0x01 // Top up
+        rec0[1] = 0x00
+        rec0[2] = 0x27.toByte()
+        rec0[3] = 0x10.toByte() // 10,000
+        ByteBuffer.wrap(rec0, 4, 4).putInt(1476253755)
+        System.arraycopy("TOPUPGPA".toByteArray(Charsets.US_ASCII), 0, rec0, 14, 8)
+        rec0[22] = 0x01
+        rec0[23] = 0x8C.toByte()
+        rec0[24] = 0x7D.toByte() // 101,501
+        desfireRecords.add(rec0)
+
+        // Rec 1: 10 Oct 08:42 - Payment Rp 15,000 (raw bal = 106,501, endBal = 91,501)
+        val rec1 = ByteArray(32)
+        rec1[0] = 0x04 // Payment
+        val rawAmt1 = 16777216 - 15_000
+        rec1[1] = ((rawAmt1 shr 16) and 0xFF).toByte()
+        rec1[2] = ((rawAmt1 shr 8) and 0xFF).toByte()
+        rec1[3] = (rawAmt1 and 0xFF).toByte()
+        ByteBuffer.wrap(rec1, 4, 4).putInt(1476088920)
+        System.arraycopy("PERTAMINA".take(8).toByteArray(Charsets.US_ASCII), 0, rec1, 14, 8)
+        val balBefore1 = 106_501
+        rec1[22] = ((balBefore1 shr 16) and 0xFF).toByte()
+        rec1[23] = ((balBefore1 shr 8) and 0xFF).toByte()
+        rec1[24] = (balBefore1 and 0xFF).toByte()
+        desfireRecords.add(rec1)
+
+        // Rec 2: 06 Oct 19:40 - Payment Rp 20,000 (raw bal = 126,501, endBal = 106,501)
+        val rec2 = ByteArray(32)
+        rec2[0] = 0x04 // Payment
+        val rawAmt2 = 16777216 - 20_000
+        rec2[1] = ((rawAmt2 shr 16) and 0xFF).toByte()
+        rec2[2] = ((rawAmt2 shr 8) and 0xFF).toByte()
+        rec2[3] = (rawAmt2 and 0xFF).toByte()
+        ByteBuffer.wrap(rec2, 4, 4).putInt(1475782800)
+        System.arraycopy("PERTAMINA".take(8).toByteArray(Charsets.US_ASCII), 0, rec2, 14, 8)
+        val balBefore2 = 126_501
+        rec2[22] = ((balBefore2 shr 16) and 0xFF).toByte()
+        rec2[23] = ((balBefore2 shr 8) and 0xFF).toByte()
+        rec2[24] = (balBefore2 and 0xFF).toByte()
+        desfireRecords.add(rec2)
+
+        // Rec 3..32: 30 older transactions down to August 2026
+        for (i in 3 until 33) {
+            val rec = ByteArray(32)
+            rec[0] = 0x04 // Payment
+            val amt = 3_000
+            val rawAmt = 16777216 - amt
+            rec[1] = ((rawAmt shr 16) and 0xFF).toByte()
+            rec[2] = ((rawAmt shr 8) and 0xFF).toByte()
+            rec[3] = (rawAmt and 0xFF).toByte()
+            // Timestamp descending from 05 Oct 2026 down
+            val txSecs = 1475000000 - i * 86400
+            ByteBuffer.wrap(rec, 4, 4).putInt(txSecs)
+            val term = String.format("STAS%04d", i)
+            System.arraycopy(term.toByteArray(Charsets.US_ASCII), 0, rec, 14, 8)
+            val balBefore = 50_000 + i * 1_000
+            rec[22] = ((balBefore shr 16) and 0xFF).toByte()
+            rec[23] = ((balBefore shr 8) and 0xFF).toByte()
+            rec[24] = (balBefore and 0xFF).toByte()
+            desfireRecords.add(rec)
+        }
+
+        // Rec 33: corrupt/uninitialized slot with timestamp overflow (2550359216L)
+        val corrupt1 = ByteArray(32)
+        corrupt1[0] = 0x04
+        val rawAmtC1 = 16777216 - 20_000
+        corrupt1[1] = ((rawAmtC1 shr 16) and 0xFF).toByte()
+        corrupt1[2] = ((rawAmtC1 shr 8) and 0xFF).toByte()
+        corrupt1[3] = (rawAmtC1 and 0xFF).toByte()
+        corrupt1[4] = 0x98.toByte()
+        corrupt1[5] = 0x03.toByte()
+        corrupt1[6] = 0x64.toByte()
+        corrupt1[7] = 0xB0.toByte()
+        desfireRecords.add(corrupt1)
+
+        // Rec 34: corrupt slot with legacy timestamp (805527552L = year 2005)
+        val corrupt2 = ByteArray(32)
+        corrupt2[0] = 0x04
+        val rawAmtC2 = 16777216 - 10_000
+        corrupt2[1] = ((rawAmtC2 shr 16) and 0xFF).toByte()
+        corrupt2[2] = ((rawAmtC2 shr 8) and 0xFF).toByte()
+        corrupt2[3] = (rawAmtC2 and 0xFF).toByte()
+        corrupt2[4] = 0x30.toByte()
+        corrupt2[5] = 0x03.toByte()
+        corrupt2[6] = 0x60.toByte()
+        corrupt2[7] = 0x00.toByte()
+        desfireRecords.add(corrupt2)
+
+        val mockChannel = ApduChannel { cmd ->
+            val hex = cmd.toHexString()
+            when {
+                hex == "00A404000BA0000000180F000001800100" -> "9000".hexToBytes()
+                hex == "00A40100020200" -> "9000".hexToBytes()
+                hex == "00B081008E" -> ";0145202002911921=2512101000000000?".toByteArray(Charsets.US_ASCII) + "9000".hexToBytes()
+                hex == "803200030400000000" -> byteArrayOf(0x00, 0x00, 0x21.toByte(), 0x35.toByte(), 0x90.toByte(), 0x00) // 8,501 chip balance
+                hex == "0000400B000004020000" -> "9000".hexToBytes()
+                hex.startsWith("00B084") -> {
+                    val p2 = cmd[3].toInt() and 0xFF
+                    if (p2 < 240) sfiBuffer.sliceArray(p2 until p2 + 15) + "9000".hexToBytes() else "6A82".hexToBytes()
+                }
+                hex.startsWith("00B085") -> "6A82".hexToBytes()
+                hex == "9032030000" -> "9000".hexToBytes()
+                hex.startsWith("9032030001") -> {
+                    val recIdx = cmd[5].toInt() and 0xFF
+                    if (recIdx < desfireRecords.size) desfireRecords[recIdx] + "9000".hexToBytes() else "6A83".hexToBytes()
+                }
+                else -> "6A82".hexToBytes()
+            }
+        }
+
+        val result = parser.parseChannel(mockChannel, "04AABBCCDDEEFF", log)
+        assertNotNull(result)
+        val history = result?.history ?: emptyList()
+
+        // 4 SFI + 33 DESFire = 37 total items, corrupt slots discarded
+        assertEquals(37, history.size)
+        assertTrue("No corrupt 1924 or 2005 dates", history.none { it.date.startsWith("1924") || it.date.startsWith("2005") })
+
+        // Check top transaction is 04 Nov with chip balance 8,501
+        assertEquals(30_000L, history[0].amount)
+        assertEquals(8_501L, history[0].balance)
+
+        // Check 12 Oct top up ending balance is 101,501
+        assertEquals(10_000L, history[4].amount)
+        assertEquals("Top up", history[4].type)
+        assertEquals(101_501L, history[4].balance)
+
+        // Check 10 Oct payment ending balance is 91,501
+        assertEquals(15_000L, history[5].amount)
+        assertEquals(91_501L, history[5].balance)
+
+        // Check 06 Oct payment ending balance is 106,501
+        assertEquals(20_000L, history[6].amount)
+        assertEquals(106_501L, history[6].balance)
     }
 }
