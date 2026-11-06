@@ -76,7 +76,10 @@ jobs:
             echo "Invalid versionCode: $version_code" >&2
             exit 1
           fi
-
+          # Scale versionCode so stable release is strictly higher than any beta builds: BASE * 100 + 99
+          if [[ "$version_code" -lt 1000000 ]]; then
+            version_code=$(( version_code * 100 + 99 ))
+          fi
           echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
           echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
           echo "VERSION_NAME=$version_name" >> "$GITHUB_ENV"

@@ -75,8 +75,14 @@ jobs:
 
           version_code="$base_version_code"
           if [[ "${version_code}" =~ ^[0-9]+$ ]]; then
-            # Safe numeric bump for staging builds
-            version_code=$(( version_code + GITHUB_RUN_NUMBER ))
+            if [[ "$version_code" -lt 1000000 ]]; then
+              base_scaled=$(( version_code * 100 ))
+            else
+              base_scaled=$(( (version_code / 100) * 100 ))
+            fi
+            # Offset 1..90 (strictly less than release +99, guaranteeing seamless in-place upgrade to stable)
+            run_offset=$(( (GITHUB_RUN_NUMBER % 90) + 1 ))
+            version_code=$(( base_scaled + run_offset ))
           fi
 
           echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
