@@ -132,5 +132,7 @@
   "fileSizeLabel": "Ukuran File",
   "fileInfoTitle": "Informasi Berkas",
   "checksumLabel": "Checksum (SHA-256)",
-  "checksumCopiedToast": "Checksum disalin ke papan klip"
+  "checksumCopiedToast": "Checksum disalin ke papan klip",
+  "playProtectTipTitle": "Catatan Google Play Protect",
+  "playProtectTipDesc": "Jika muncul 'Pemindaian disarankan' saat pasang update, pilih 'Pindai aplikasi' atau ketuk 'Detail selengkapnya' ➔ 'Tetap instal'."
 }

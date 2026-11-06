@@ -158,6 +158,8 @@ interface AppStrings {
     val noStableReleaseAvailable: String
     val preReleaseBadge: String
     val stableBadge: String
+    val playProtectTipTitle: String
+    val playProtectTipDesc: String
 }
 
 object AppStringsId : AppStrings {
@@ -314,6 +316,8 @@ object AppStringsId : AppStrings {
     override val noStableReleaseAvailable = "Belum ada rilis stabil di repositori ini."
     override val preReleaseBadge = "BETA / PENGUJIAN"
     override val stableBadge = "STABIL / TERBARU"
+    override val playProtectTipTitle = "Catatan Google Play Protect"
+    override val playProtectTipDesc = "Jika muncul 'Pemindaian disarankan' saat pasang update, pilih 'Pindai aplikasi' atau ketuk 'Detail selengkapnya' ➔ 'Tetap instal'."
 }
 
 object AppStringsEn : AppStrings {
@@ -470,6 +474,8 @@ object AppStringsEn : AppStrings {
     override val noStableReleaseAvailable = "No stable release available in this repository."
     override val preReleaseBadge = "BETA / PRE-RELEASE"
     override val stableBadge = "STABLE / LATEST"
+    override val playProtectTipTitle = "Google Play Protect Notice"
+    override val playProtectTipDesc = "If 'Scan recommended' appears when installing updates, choose 'Scan app' or tap 'More details' ➔ 'Install anyway'."
 }
 
 class JsonBackedAppStrings(
@@ -631,6 +637,8 @@ class JsonBackedAppStrings(
     override val noStableReleaseAvailable get() = get("noStableReleaseAvailable", fallback.noStableReleaseAvailable)
     override val preReleaseBadge get() = get("preReleaseBadge", fallback.preReleaseBadge)
     override val stableBadge get() = get("stableBadge", fallback.stableBadge)
+    override val playProtectTipTitle get() = get("playProtectTipTitle", fallback.playProtectTipTitle)
+    override val playProtectTipDesc get() = get("playProtectTipDesc", fallback.playProtectTipDesc)
 }
 
 object JsonI18nLoader {

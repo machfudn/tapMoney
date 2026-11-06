@@ -132,5 +132,7 @@
   "fileSizeLabel": "File Size",
   "fileInfoTitle": "File Information",
   "checksumLabel": "Checksum (SHA-256)",
-  "checksumCopiedToast": "Checksum copied to clipboard"
+  "checksumCopiedToast": "Checksum copied to clipboard",
+  "playProtectTipTitle": "Google Play Protect Notice",
+  "playProtectTipDesc": "If 'Scan recommended' appears when installing updates, choose 'Scan app' or tap 'More details' ➔ 'Install anyway'."
 }

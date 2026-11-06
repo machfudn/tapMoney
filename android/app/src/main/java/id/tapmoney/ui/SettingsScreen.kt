@@ -1401,6 +1401,42 @@ private fun DualChannelUpdateDialog(
                                 }
                             }
                         }
+
+                        // Play Protect Tip Card
+                        if (activeRelease.downloadUrl != null) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(surfaceAltColor, RoundedCornerShape(8.dp))
+                                    .border(1.dp, borderColor.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Security,
+                                        contentDescription = null,
+                                        tint = headerColor,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = strings.playProtectTipTitle,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = textColor
+                                    )
+                                }
+                                Text(
+                                    text = strings.playProtectTipDesc,
+                                    fontSize = 10.sp,
+                                    color = textSubtleColor,
+                                    lineHeight = 14.sp
+                                )
+                            }
+                        }
                     } else {
                         // Empty State
                         Box(
